@@ -19,7 +19,7 @@ Mac 的屏幕是横的，手机是竖的。远程时整块横屏缩进手机，�
 
 ## 安装
 
-1. 到 [Releases](https://github.com/cyanext/PhoneMode/releases) 下载 `远程模式.dmg`，打开后把「远程模式」拖到「应用程序」。
+1. 到 [Releases](https://github.com/cyanext/PhoneMode/releases) 下载 `PhoneMode-<版本>.dmg`，打开后把「远程模式」拖到「应用程序」。
 2. 第一次打开如果提示「无法验证开发者」，到「系统设置 > 隐私与安全性」底部点「仍要打开」。
 
 需要 macOS 12 或更新的版本，支持 Apple 芯片和 Intel。
