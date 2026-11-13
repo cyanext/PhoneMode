@@ -3,15 +3,15 @@
 #import "PhoneModels.h"
 
 static CGVirtualDisplay *vd;              // 当前虚拟屏；nil 表示没开
-static CGDirectDisplayID phys;            // 镜像虚拟屏的那块物理屏
-static CGDisplayModeRef physMode;         // 物理屏原来的模式，关闭时恢复
+static NSMutableDictionary *origModes;    // 显示器编号 -> 镜像前的原模式（CGDisplayModeRef），关闭时恢复
 static BOOL mirrored;                     // 镜像已经设好
 static BOOL closing;                      // 正在关闭：镜像已解除，等着恢复原模式
 static unsigned gen;                      // 每建一次虚拟屏加一，用来识别过期的延迟回调
 static CFAbsoluteTime createdAt;          // 最近一次建虚拟屏的时间
 static NSMutableArray *offWaiters;        // 等关闭完成的回调
 static void (^onDisplayEvent)(BOOL lost); // 通知界面刷新；lost 表示虚拟屏被系统回收了
-// 开启时把物理屏原模式记进设置，正常恢复后清掉；启动时发现还在，说明上次被强杀或崩溃
+static int curW, curH;                    // 虚拟屏应有的尺寸，修复分辨率时用
+// 镜像物理屏时把它们的原模式记进设置，正常恢复后清掉；启动时发现还在，说明上次被强杀或崩溃
 #define RESTORE_KEY @"restore"
 // 预览模式：只看界面，不碰显示器。开关只改这两个状态
 static BOOL preview, previewOn;
@@ -66,18 +66,19 @@ static BOOL applyMode(CGDirectDisplayID d, size_t W, size_t H, size_t PW, double
 }
 
 static void writeRestoreRecord(void) {
-    if (!physMode) {
-        return;
+    NSMutableArray *a = [NSMutableArray array];
+    for (NSNumber *k in origModes) {
+        CGDisplayModeRef m = (__bridge CGDisplayModeRef)origModes[k];
+        [a addObject:@{
+            @"display" : k,
+            @"w" : @(CGDisplayModeGetWidth(m)),
+            @"h" : @(CGDisplayModeGetHeight(m)),
+            @"pw" : @(CGDisplayModeGetPixelWidth(m)),
+            @"hz" : @(CGDisplayModeGetRefreshRate(m))
+        }];
     }
     NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
-    [ud setObject:@{
-        @"display" : @(phys),
-        @"w" : @(CGDisplayModeGetWidth(physMode)),
-        @"h" : @(CGDisplayModeGetHeight(physMode)),
-        @"pw" : @(CGDisplayModeGetPixelWidth(physMode)),
-        @"hz" : @(CGDisplayModeGetRefreshRate(physMode))
-    }
-           forKey:RESTORE_KEY];
+    [ud setObject:a forKey:RESTORE_KEY];
     [ud synchronize]; // 立刻落盘，随后被强杀也还在
 }
 
@@ -94,28 +95,29 @@ BOOL displayRecoverFromCrash(void) {
     if (preview) {
         return NO;
     }
-    NSDictionary *r = [[NSUserDefaults standardUserDefaults] dictionaryForKey:RESTORE_KEY];
-    if (!r) {
-        return NO;
-    }
+    id r = [[NSUserDefaults standardUserDefaults] objectForKey:RESTORE_KEY];
+    NSArray *list = [r isKindOfClass:[NSArray class]] ? r : [r isKindOfClass:[NSDictionary class]] ? @[ r ] : nil;
     BOOL did = NO;
-    if ([r[@"w"] respondsToSelector:@selector(intValue)] && [r[@"h"] respondsToSelector:@selector(intValue)] &&
-        [r[@"w"] intValue] > 0 && [r[@"h"] intValue] > 0) {
-        CGDirectDisplayID d =
-            [r[@"display"] respondsToSelector:@selector(unsignedIntValue)] ? [r[@"display"] unsignedIntValue] : 0;
+    for (NSDictionary *e in list) {
+        if (![e isKindOfClass:[NSDictionary class]] || [e[@"w"] intValue] <= 0 || [e[@"h"] intValue] <= 0) {
+            continue;
+        }
+        CGDirectDisplayID d = [e[@"display"] unsignedIntValue];
         if (!d || !displayOnline(d)) {
-            d = CGMainDisplayID();
+            if (list.count > 1) {
+                continue; // 多块屏时对不上号就跳过，免得把别的屏改错
+            }
+            d = CGMainDisplayID(); // 只有一块时，重启后编号可能变了，按主屏处理
         }
         CGDisplayModeRef cur = CGDisplayCopyDisplayMode(d);
-        size_t W = [r[@"w"] intValue], H = [r[@"h"] intValue], PW = [r[@"pw"] intValue];
-        double R = [r[@"hz"] doubleValue];
+        size_t W = [e[@"w"] intValue], H = [e[@"h"] intValue], PW = [e[@"pw"] intValue];
         BOOL same = cur && CGDisplayModeGetWidth(cur) == W && CGDisplayModeGetHeight(cur) == H &&
                     CGDisplayModeGetPixelWidth(cur) == PW;
         if (cur) {
             CGDisplayModeRelease(cur);
         }
-        if (!same) {
-            did = applyMode(d, W, H, PW, R);
+        if (!same && applyMode(d, W, H, PW, [e[@"hz"] doubleValue])) {
+            did = YES;
         }
     }
     clearRestoreRecord();
@@ -155,6 +157,122 @@ void displayScheduleVerify(void) {
     });
 }
 
+// 除虚拟屏以外的在线显示器，返回块数
+static uint32_t physicals(CGDirectDisplayID vid, CGDirectDisplayID out[16]) {
+    uint32_t n = 0, k = 0;
+    CGDirectDisplayID ids[16];
+    if (CGGetOnlineDisplayList(16, ids, &n) != kCGErrorSuccess) {
+        return 0;
+    }
+    for (uint32_t i = 0; i < n; i++) {
+        if (ids[i] != vid) {
+            out[k++] = ids[i];
+        }
+    }
+    return k;
+}
+
+// 是不是设定的尺寸（Retina：像素宽是点数宽的两倍）
+static BOOL isWanted(CGDisplayModeRef m) {
+    return (int)CGDisplayModeGetWidth(m) == curW && (int)CGDisplayModeGetHeight(m) == curH &&
+           (int)CGDisplayModeGetPixelWidth(m) == curW * 2;
+}
+
+static BOOL vdModeOK(CGDirectDisplayID vid) {
+    CGDisplayModeRef m = CGDisplayCopyDisplayMode(vid);
+    if (!m) {
+        return YES; // 查不到时不动它
+    }
+    BOOL ok = isWanted(m);
+    CGDisplayModeRelease(m);
+    return ok;
+}
+
+// 应有的排列：虚拟屏是设定尺寸、在原点当主屏，所有物理屏都镜像它。
+// 只要有一块物理屏没进镜像，它就是单独一块屏：Dock 可能跑过去，UU 也要给它单独盖防窥窗口，断开后容易卡住
+static BOOL topologyOK(CGDirectDisplayID vid) {
+    CGRect b = CGDisplayBounds(vid);
+    if (b.origin.x != 0 || b.origin.y != 0 || !vdModeOK(vid)) {
+        return NO;
+    }
+    CGDirectDisplayID p[16];
+    uint32_t n = physicals(vid, p);
+    for (uint32_t i = 0; i < n; i++) {
+        if (CGDisplayMirrorsDisplay(p[i]) != vid) {
+            return NO;
+        }
+    }
+    return YES;
+}
+
+// 设成应有的排列。第一次镜像的物理屏先记下原模式，关闭时恢复
+static BOOL applyTopology(CGDirectDisplayID vid) {
+    if (!origModes) {
+        origModes = [NSMutableDictionary dictionary];
+    }
+    CGDirectDisplayID p[16];
+    uint32_t n = physicals(vid, p);
+    BOOL added = NO;
+    for (uint32_t i = 0; i < n; i++) {
+        CGDisplayModeRef m = origModes[@(p[i])] ? NULL : CGDisplayCopyDisplayMode(p[i]);
+        if (m) {
+            origModes[@(p[i])] = CFBridgingRelease(m);
+            added = YES;
+        }
+    }
+    if (added) {
+        writeRestoreRecord();
+    }
+    CGDisplayConfigRef c;
+    if (CGBeginDisplayConfiguration(&c) != kCGErrorSuccess) {
+        return NO;
+    }
+    if (!vdModeOK(vid)) {
+        CFArrayRef a = allModes(vid);
+        for (CFIndex i = 0; a && i < CFArrayGetCount(a); i++) {
+            CGDisplayModeRef m = (CGDisplayModeRef)CFArrayGetValueAtIndex(a, i);
+            if (isWanted(m)) {
+                CGConfigureDisplayWithDisplayMode(c, vid, m, NULL);
+                break;
+            }
+        }
+        if (a) {
+            CFRelease(a);
+        }
+    }
+    CGConfigureDisplayOrigin(c, vid, 0, 0);
+    for (uint32_t i = 0; i < n; i++) {
+        CGConfigureDisplayMirrorOfDisplay(c, p[i], vid);
+    }
+    return CGCompleteDisplayConfiguration(c, kCGConfigureForSession) == kCGErrorSuccess;
+}
+
+// 镜像设好之后，外部变化会把排列打乱：插拔显示器，或者别的程序解除镜像、改虚拟屏分辨率。
+// 发现了就设回去；一分钟内修满三次还不对，说明在和别的程序来回抢，干脆关掉虚拟屏，Dock 和窗口回到物理屏
+static void enforceTopology(void) {
+    if (!vd || !mirrored || closing) {
+        return;
+    }
+    CGDirectDisplayID vid = vd.displayID;
+    if (topologyOK(vid)) {
+        return;
+    }
+    static CFAbsoluteTime recent[3];
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    if (now - recent[0] < 60 || !applyTopology(vid)) {
+        NSLog(@"远程模式：显示器排列一直被改掉，关闭虚拟屏");
+        displayOff(^{
+            if (onDisplayEvent) {
+                onDisplayEvent(NO);
+            }
+        });
+        return;
+    }
+    recent[0] = recent[1];
+    recent[1] = recent[2];
+    recent[2] = now;
+}
+
 static void verifyDisplay(void) {
     if (!vd) {
         return;
@@ -165,10 +283,11 @@ static void verifyDisplay(void) {
         return;
     }
     if (displayOnline(vd.displayID)) {
+        enforceTopology();
         return;
     }
     vd = nil;
-    mirrored = NO; // physMode 和恢复记录留着，重建或放弃时还要用
+    mirrored = NO; // 原模式和恢复记录留着，重建或放弃时还要用
     if (onDisplayEvent) {
         onDisplayEvent(YES);
     }
@@ -200,11 +319,8 @@ BOOL displayOn(int w, int h) {
     if (!D || !V || !st) {
         return NO;
     }
-    BOOL fresh = !physMode; // 虚拟屏丢失后重建时，沿用之前记下的物理屏和原模式
-    if (fresh) {
-        phys = CGMainDisplayID();
-        physMode = CGDisplayCopyDisplayMode(phys);
-    }
+    curW = w;
+    curH = h;
     CGVirtualDisplayDescriptor *d = [D new];
     d.queue = dispatch_get_main_queue();
     d.name = @"远程模式";
@@ -222,14 +338,7 @@ BOOL displayOn(int w, int h) {
     vd = [(CGVirtualDisplay *)[V alloc] initWithDescriptor:d];
     if (!vd || ![vd applySettings:st]) {
         vd = nil;
-        if (fresh && physMode) {
-            CGDisplayModeRelease(physMode);
-            physMode = NULL;
-        }
         return NO;
-    }
-    if (fresh) {
-        writeRestoreRecord();
     }
     static BOOL registered;
     if (!registered) {
@@ -244,11 +353,7 @@ BOOL displayOn(int w, int h) {
         if (!vd || g != gen || vd.displayID != vid) {
             return;
         }
-        CGDisplayConfigRef c;
-        CGBeginDisplayConfiguration(&c);
-        CGConfigureDisplayOrigin(c, vid, 0, 0);
-        CGConfigureDisplayMirrorOfDisplay(c, phys, vid);
-        CGCompleteDisplayConfiguration(c, kCGConfigureForSession);
+        applyTopology(vid); // 虚拟屏丢失后重建时，已记下的原模式沿用
         mirrored = YES;
         if (onDisplayEvent) {
             onDisplayEvent(NO);
@@ -258,6 +363,8 @@ BOOL displayOn(int w, int h) {
 }
 
 void displayResize(int w, int h) {
+    curW = w;
+    curH = h;
     if (vd) {
         CGVirtualDisplaySettings *s = settingsFor(w, h);
         if (s) {
@@ -271,9 +378,13 @@ static CGDirectDisplayID droppedID; // 刚销毁的虚拟屏的编号，用来�
 static CFAbsoluteTime droppedAt;
 
 static void dropVirtual(void) {
+    CGDirectDisplayID p[16];
+    uint32_t n = physicals(vd.displayID, p);
     CGDisplayConfigRef c;
     CGBeginDisplayConfiguration(&c);
-    CGConfigureDisplayMirrorOfDisplay(c, phys, kCGNullDirectDisplay);
+    for (uint32_t i = 0; i < n; i++) {
+        CGConfigureDisplayMirrorOfDisplay(c, p[i], kCGNullDirectDisplay);
+    }
     CGCompleteDisplayConfiguration(c, kCGConfigureForSession);
     @autoreleasepool {
         droppedID = vd.displayID;
@@ -283,14 +394,14 @@ static void dropVirtual(void) {
     mirrored = NO;
 }
 
-// 物理屏切回原模式，并清掉恢复记录
+// 物理屏切回原模式，并清掉恢复记录。已经拔掉的屏查不到模式，自动跳过
 static void restorePhysMode(void) {
-    if (physMode) {
-        applyMode(phys, CGDisplayModeGetWidth(physMode), CGDisplayModeGetHeight(physMode),
-                  CGDisplayModeGetPixelWidth(physMode), CGDisplayModeGetRefreshRate(physMode));
-        CGDisplayModeRelease(physMode);
-        physMode = NULL;
+    for (NSNumber *k in origModes) {
+        CGDisplayModeRef m = (__bridge CGDisplayModeRef)origModes[k];
+        applyMode(k.unsignedIntValue, CGDisplayModeGetWidth(m), CGDisplayModeGetHeight(m),
+                  CGDisplayModeGetPixelWidth(m), CGDisplayModeGetRefreshRate(m));
     }
+    origModes = nil;
     clearRestoreRecord();
 }
 
@@ -306,7 +417,8 @@ static void scheduleFinishOff(double delay) {
                                               }
                                               // 还没下线就再等等，最多等到销毁后 8
                                               // 秒。物理屏睡着时系统不会处理显示器变化，等也没用，直接往下走
-                                              BOOL waiting = displayOnline(droppedID) && !CGDisplayIsAsleep(phys) &&
+                                              BOOL waiting = displayOnline(droppedID) &&
+                                                             !CGDisplayIsAsleep(CGMainDisplayID()) &&
                                                              CFAbsoluteTimeGetCurrent() - droppedAt < 8;
                                               if (waiting) {
                                                   scheduleFinishOff(0.25);
