@@ -61,7 +61,8 @@ int main(int argc, const char **argv) {
         }
 
         NSApplication *app = [NSApplication sharedApplication];
-        [app setActivationPolicy:NSApplicationActivationPolicyRegular];
+        // 菜单栏应用：不显示 Dock 图标
+        [app setActivationPolicy:NSApplicationActivationPolicyAccessory];
         if ([appearance isEqualToString:@"dark"]) {
             app.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
         } else if ([appearance isEqualToString:@"light"]) {

@@ -1,41 +1,45 @@
 #import "AppDelegate.h"
-#import "Card.h"
 #import "DisplayControl.h"
-#import "MenuButton.h"
+#import "OtherApps.h"
 #import "PhoneModels.h"
-#import "PillButton.h"
-#import "PowerButton.h"
-#import "SegmentView.h"
-#import "StepperView.h"
 #import "Theme.h"
+#import "UUWatch.h"
+
+// 坐标原点在左上角的容器，从上往下排版方便
+@interface FlipView : NSView
+@end
+@implementation FlipView
+- (BOOL)isFlipped {
+    return YES;
+}
+@end
 
 @interface AppDelegate ()
-@property(strong) NSWindow *win;
-@property(strong) Flipped *root, *pillBox;
-@property(strong) PowerButton *power;
-@property(strong) NSTextField *stateLabel, *wField, *hField;
-@property(strong) SegmentView *brandSeg;
-@property(strong) MenuButton *modelBtn;
-@property(strong) StepperView *wStep, *hStep;
-@property(strong) NSPopover *namePop;
-@property(strong) NSTextField *nameField;
-@property(copy) void (^nameDone)(NSString *);
+@property(strong) NSStatusItem *statusItem;
+@property(strong) NSPopover *popover;
+@property(strong) FlipView *root, *presetBox;
+@property(strong) NSSwitch *power, *followUU;
+@property(strong) NSTextField *stateLabel, *sizeLabel, *heightLabel;
+@property(strong) NSPopUpButton *modelBtn;
+@property(strong) NSSlider *slider;
+@property(strong) NSSegmentedControl *heightSeg;
 @property(strong) id<NSObject> activity;
 @end
 
 @implementation AppDelegate {
-    int _model, _w, _h, _menuGroup, _rebuilds;
+    int _model, _w, _h, _rebuilds;
+    // 宽高比（高 ÷ 宽）。拖显示大小时保持不变；选机型、选预设、调画面高度时重算
+    double _ratio;
     BOOL _terminating;
     CFAbsoluteTime _rebuildT0;
 }
 
-#define WIN_W 440
-#define PAD 24
+#define PANEL_W 320
+#define PAD 16
 #define ROW_H 44
-#define CARD_TOP 216
-#define PILLS_TOP (CARD_TOP + ROW_H * 4 + 48)
-#define SEG_W 78        // 品牌分段每格宽度
-#define SERIES_TAG 1000 // 型号菜单里「xx 系列」子菜单项的 tag 起点
+#define TITLE_X 52 // 行标题的左边距，图标在它左边
+#define SIZE_H 90  // 显示大小这一块：标题行、滑块、两端说明
+#define PRESET_H 32
 
 #pragma mark 设置存取
 
@@ -77,6 +81,7 @@
 
 - (void)setPresets:(NSArray *)a {
     [self.ud setObject:a forKey:@"presets"];
+    [self buildPresets];
 }
 
 - (void)load {
@@ -88,6 +93,7 @@
     _h = (int)[self.ud integerForKey:@"h"] ?: kModels[_model].h;
     _w = MAX(WMIN, MIN(WMAX, _w));
     _h = MAX(HMIN, MIN(HMAX, _h));
+    _ratio = (double)_h / _w;
 }
 
 - (void)save {
@@ -96,375 +102,405 @@
     [self.ud setInteger:_h forKey:@"h"];
 }
 
+// 当前尺寸和哪个预设完全一样，没有返回 -1
+- (NSInteger)matchingPreset {
+    NSArray *ps = self.presets;
+    for (NSInteger i = 0; i < (NSInteger)ps.count; i++) {
+        NSDictionary *d = ps[i];
+        if (modelIndexByName(d[@"model"]) == _model && [d[@"w"] intValue] == _w && [d[@"h"] intValue] == _h) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 #pragma mark 界面
 
-- (NSTextField *)label:(NSString *)s size:(CGFloat)sz weight:(NSFontWeight)wt color:(NSColor *)c {
+static NSTextField *label(NSString *s, CGFloat size, NSFontWeight weight, NSColor *color) {
     NSTextField *t = [NSTextField labelWithString:s];
-    t.font = [NSFont systemFontOfSize:sz weight:wt];
-    t.textColor = c;
+    t.font = [NSFont systemFontOfSize:size weight:weight];
+    t.textColor = color;
     [t sizeToFit];
     return t;
 }
 
-- (NSImageView *)icon:(NSString *)sym size:(CGFloat)pt tint:(NSColor *)tint center:(NSPoint)c in:(NSView *)v {
-    NSImageView *iv = [NSImageView imageViewWithImage:Sym(sym, pt, NSFontWeightRegular, nil)];
-    iv.contentTintColor = tint;
-    iv.frame = NSMakeRect(c.x - 12, c.y - 12, 24, 24);
+static NSTextField *numLabel(CGFloat width) {
+    NSTextField *t = label(@"", 13, NSFontWeightRegular, NSColor.secondaryLabelColor);
+    t.font = [NSFont monospacedDigitSystemFontOfSize:13 weight:NSFontWeightRegular];
+    t.alignment = NSTextAlignmentRight;
+    t.frame = NSMakeRect(0, 0, width, 17);
+    return t;
+}
+
+static void separator(NSView *v, CGFloat y) {
+    NSBox *s = [[NSBox alloc] initWithFrame:NSMakeRect(PAD, y, PANEL_W - PAD * 2, 1)];
+    s.boxType = NSBoxSeparator;
+    [v addSubview:s];
+}
+
+// 圆形底上一枚图标，行顶在 y。filled：强调色实心底白图标；否则灰底、和文字同色的图标
+static void chip(NSView *v, CGFloat y, NSString *sym, BOOL filled) {
+    NSBox *b = [[NSBox alloc] initWithFrame:NSMakeRect(PAD, y + 8, 28, 28)];
+    b.boxType = NSBoxCustom;
+    b.titlePosition = NSNoTitle;
+    b.borderWidth = 0;
+    b.cornerRadius = 14;
+    b.fillColor = filled ? NSColor.controlAccentColor : ChipFill();
+    [v addSubview:b];
+    NSImageView *iv = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:sym
+                                                                accessibilityDescription:nil]];
+    iv.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:13 weight:NSFontWeightMedium];
+    iv.contentTintColor = filled ? NSColor.whiteColor : NSColor.labelColor;
+    iv.frame = NSMakeRect(PAD + 3, y + 11, 22, 22);
     [v addSubview:iv];
-    return iv;
 }
 
-// 卡片里的一行：左侧主题色线性图标加标题
-- (void)row:(int)i in:(Card *)card symbol:(NSString *)sym title:(NSString *)title {
-    [self icon:sym size:14 tint:ThemeInk() center:NSMakePoint(28, i * ROW_H + ROW_H / 2) in:card];
-    NSTextField *t = [self label:title size:13 weight:NSFontWeightRegular color:NSColor.labelColor];
-    [t setFrameOrigin:NSMakePoint(48, i * ROW_H + floor((ROW_H - t.frame.size.height) / 2))];
-    [card addSubview:t];
+// 一行（行顶在 y、高 ROW_H）的左半边：圆形图标加标题
+static NSTextField *rowTitle(NSView *v, CGFloat y, NSString *sym, BOOL filled, NSString *title) {
+    chip(v, y, sym, filled);
+    NSTextField *t = label(title, 13, NSFontWeightRegular, NSColor.labelColor);
+    [t setFrameOrigin:NSMakePoint(TITLE_X, y + floor((ROW_H - t.frame.size.height) / 2))];
+    [v addSubview:t];
+    return t;
 }
 
-- (StepperView *)stepperRow:(int)i in:(Card *)card horizontal:(BOOL)horiz {
-    StepperView *s = [[StepperView alloc]
-        initWithFrame:NSMakeRect(card.frame.size.width - 12 - 136, i * ROW_H + (ROW_H - 28) / 2, 136, 28)];
-    s.field.delegate = self;
-    s.field.target = self;
-    s.field.action = @selector(typed:);
-    __weak AppDelegate *me = self;
-    s.onStep = ^(int d) {
-        [me stepW:horiz ? d : 0 h:horiz ? 0 : d];
-    };
-    [card addSubview:s];
-    return s;
+// 把控件放到行顶为 y 的那一行右侧，右边留 right 的空
+static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
+    NSSize s = c.frame.size;
+    c.frame = NSMakeRect(PANEL_W - PAD - right - s.width, y + floor((ROW_H - s.height) / 2), s.width, s.height);
+    [v addSubview:c];
 }
 
-- (void)buildWindow {
-    CGFloat H0 = PILLS_TOP + 28 + PAD;
-    self.win =
-        [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, WIN_W, H0)
-                                    styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
-                                              NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskFullSizeContentView
-                                      backing:NSBackingStoreBuffered
-                                        defer:NO];
-    self.win.titlebarAppearsTransparent = YES;
-    self.win.titleVisibility = NSWindowTitleHidden;
-    self.win.title = @"远程模式";
-    self.win.releasedWhenClosed = NO;
-    self.win.delegate = self;
-    self.win.movableByWindowBackground = YES;
-    self.win.backgroundColor = Backdrop();
-    self.root = [[Flipped alloc] initWithFrame:NSMakeRect(0, 0, WIN_W, H0)];
-    self.win.contentView = self.root;
-    Flipped *root = self.root;
-    CGFloat cw = WIN_W - PAD * 2;
+// 盖在一行上的透明按钮：点一下执行 action
+- (NSButton *)rowButtonAt:(CGFloat)y height:(CGFloat)h action:(SEL)a tag:(NSInteger)tag in:(NSView *)v {
+    NSButton *b = [NSButton buttonWithTitle:@"" target:self action:a];
+    b.bordered = NO;
+    b.transparent = YES;
+    b.tag = tag;
+    b.frame = NSMakeRect(0, y, PANEL_W, h);
+    [v addSubview:b];
+    return b;
+}
 
-    // 总开关：大圆按钮加一行状态
-    self.power = [[PowerButton alloc] initWithFrame:NSMakeRect((WIN_W - 176) / 2, 12, 176, 176)];
+- (void)buildPanel {
+    FlipView *r = [[FlipView alloc] initWithFrame:NSMakeRect(0, 0, PANEL_W, 100)];
+    self.root = r;
+
+    // 标题、状态和总开关
+    NSTextField *t = label(@"远程模式", 15, NSFontWeightSemibold, NSColor.labelColor);
+    [t setFrameOrigin:NSMakePoint(PAD, 14)];
+    [r addSubview:t];
+    self.stateLabel = label(@"", 12, NSFontWeightRegular, NSColor.secondaryLabelColor);
+    self.stateLabel.frame = NSMakeRect(PAD, 36, 220, 16);
+    [r addSubview:self.stateLabel];
+    self.power = [NSSwitch new];
+    [self.power sizeToFit];
+    [self.power setFrameOrigin:NSMakePoint(PANEL_W - PAD - self.power.frame.size.width,
+                                           floor((66 - self.power.frame.size.height) / 2))];
     self.power.target = self;
     self.power.action = @selector(powerClicked:);
-    [root addSubview:self.power];
-    self.stateLabel = [self label:@"远程模式已开启" size:13 weight:NSFontWeightMedium color:NSColor.labelColor];
-    self.stateLabel.alignment = NSTextAlignmentCenter;
-    self.stateLabel.frame = NSMakeRect(0, 176, WIN_W, 18);
-    [root addSubview:self.stateLabel];
+    [r addSubview:self.power];
+    separator(r, 66);
 
-    // 品牌、型号、宽、高
-    Card *card = [[Card alloc] initWithFrame:NSMakeRect(PAD, CARD_TOP, cw, ROW_H * 4)];
-    card.rows = 4;
-    card.rowH = ROW_H;
-    [root addSubview:card];
-    [self row:0 in:card symbol:@"tag" title:@"品牌"];
-    NSArray *groups = groupNames();
-    self.brandSeg = [[SegmentView alloc]
-        initWithFrame:NSMakeRect(cw - 12 - SEG_W * groups.count, (ROW_H - 28) / 2, SEG_W * groups.count, 28)];
-    self.brandSeg.titles = groups;
-    __weak AppDelegate *me = self;
-    self.brandSeg.onPick = ^(NSInteger g) {
-        [me pickBrand:g];
-    };
-    [card addSubview:self.brandSeg];
-    [self row:1 in:card symbol:@"iphone" title:@"型号"];
-    self.modelBtn = [[MenuButton alloc] initWithFrame:NSMakeRect(88, ROW_H + (ROW_H - 28) / 2, cw - 88 - 6, 28)];
-    [card addSubview:self.modelBtn];
-    [self row:2 in:card symbol:@"arrow.left.and.right" title:@"宽度"];
-    self.wStep = [self stepperRow:2 in:card horizontal:YES];
-    self.wField = self.wStep.field;
-    [self row:3 in:card symbol:@"arrow.up.and.down" title:@"高度"];
-    self.hStep = [self stepperRow:3 in:card horizontal:NO];
-    self.hField = self.hStep.field;
+    // 跟随 UU 远程：UU 连上自动开，断开自动关
+    CGFloat y = 72;
+    rowTitle(r, y, @"antenna.radiowaves.left.and.right", NO, @"跟随 UU 远程");
+    self.followUU = [NSSwitch new];
+    self.followUU.controlSize = NSControlSizeSmall;
+    [self.followUU sizeToFit];
+    self.followUU.state = [self.ud objectForKey:@"followUU"] && ![self.ud boolForKey:@"followUU"] ? NSControlStateValueOff
+                                                                                                   : NSControlStateValueOn;
+    self.followUU.target = self;
+    self.followUU.action = @selector(followClicked:);
+    self.followUU.toolTip = @"网易 UU 远程连上时自动开启远程画面，断开时自动关闭";
+    placeRight(r, y, self.followUU, 0);
 
-    // 预设
-    [self icon:@"bookmark"
-          size:11
-          tint:NSColor.secondaryLabelColor
-        center:NSMakePoint(PAD + 8, PILLS_TOP - 16)
-            in:root];
-    NSTextField *pl = [self label:@"预设" size:12 weight:NSFontWeightMedium color:NSColor.secondaryLabelColor];
-    [pl setFrameOrigin:NSMakePoint(PAD + 20, PILLS_TOP - 16 - floor(pl.frame.size.height / 2))];
-    [root addSubview:pl];
-    self.pillBox = [[Flipped alloc] initWithFrame:NSMakeRect(PAD, PILLS_TOP, cw, 28)];
-    [root addSubview:self.pillBox];
-    _menuGroup = -1;
+    // 机型：按品牌、系列分层的菜单
+    y += ROW_H;
+    rowTitle(r, y, @"iphone", NO, @"机型");
+    self.modelBtn = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 180, 24) pullsDown:YES];
+    self.modelBtn.bordered = NO;
+    self.modelBtn.alignment = NSTextAlignmentRight;
+    self.modelBtn.menu.delegate = self;
+    placeRight(r, y, self.modelBtn, -4);
+
+    // 显示大小：标题行右侧是分辨率和相对机型推荐宽度的比例，下面一整条滑块，两端写方向
+    y += ROW_H;
+    rowTitle(r, y, @"textformat.size", NO, @"显示大小");
+    self.sizeLabel = numLabel(150);
+    placeRight(r, y, self.sizeLabel, 0);
+    self.slider = [NSSlider sliderWithValue:WMIN minValue:WMIN maxValue:WMAX target:self action:@selector(slid:)];
+    self.slider.frame = NSMakeRect(PAD - 2, y + 40, PANEL_W - PAD * 2 + 4, 24);
+    self.slider.numberOfTickMarks = 7;
+    [r addSubview:self.slider];
+    NSTextField *l = label(@"更大文本", 11, NSFontWeightRegular, NSColor.secondaryLabelColor);
+    [l setFrameOrigin:NSMakePoint(PAD, y + 66)];
+    [r addSubview:l];
+    NSTextField *m = label(@"更多空间", 11, NSFontWeightRegular, NSColor.secondaryLabelColor);
+    [m setFrameOrigin:NSMakePoint(PANEL_W - PAD - m.frame.size.width, y + 66)];
+    [r addSubview:m];
+
+    // 画面高度：数字加「− | +」，每点一下 ±10
+    y += SIZE_H;
+    rowTitle(r, y, @"arrow.up.and.down", NO, @"画面高度");
+    self.heightSeg = [NSSegmentedControl
+        segmentedControlWithImages:@[
+            [NSImage imageWithSystemSymbolName:@"minus" accessibilityDescription:@"调矮"],
+            [NSImage imageWithSystemSymbolName:@"plus" accessibilityDescription:@"调高"]
+        ]
+                      trackingMode:NSSegmentSwitchTrackingMomentary
+                            target:self
+                            action:@selector(stepped:)];
+    [self.heightSeg setWidth:30 forSegment:0];
+    [self.heightSeg setWidth:30 forSegment:1];
+    [self.heightSeg sizeToFit];
+    self.heightSeg.toolTip = @"只改高度。画面底部被输入法挡住时调矮";
+    placeRight(r, y, self.heightSeg, -2);
+    self.heightLabel = numLabel(60);
+    placeRight(r, y, self.heightLabel, self.heightSeg.frame.size.width + 6);
+    y += ROW_H + 6;
+    separator(r, y);
+
+    // 预设区：标题、各条预设、新建预设、退出。条数会变，放进单独的容器里重排
+    self.presetBox = [[FlipView alloc] initWithFrame:NSMakeRect(0, y + 1, PANEL_W, 10)];
+    [r addSubview:self.presetBox];
+
+    NSViewController *vc = [NSViewController new];
+    vc.view = r;
+    self.popover = [NSPopover new];
+    self.popover.contentViewController = vc;
+    self.popover.behavior = NSPopoverBehaviorTransient;
+    [self buildPresets];
 }
 
-// 型号菜单只列当前品牌的型号，每项右侧带推荐尺寸。iPhone 按代放进子菜单
-- (NSMenuItem *)modelItem:(int)i title:(NSString *)t {
-    NSFont *f = [NSFont menuFontOfSize:0], *nf = [NSFont monospacedDigitSystemFontOfSize:f.pointSize - 1
-                                                                                  weight:NSFontWeightRegular];
-    NSMutableParagraphStyle *ps = [NSMutableParagraphStyle new];
-    ps.tabStops = @[ [[NSTextTab alloc] initWithTextAlignment:NSTextAlignmentRight location:220 options:@{}] ];
-    NSMenuItem *it = [[NSMenuItem alloc] initWithTitle:t action:@selector(pickModel:) keyEquivalent:@""];
+// 重排预设区，面板高度跟着变。tag：100 起是各条预设的勾，99 是新建预设
+- (void)buildPresets {
+    FlipView *b = self.presetBox;
+    for (NSView *v in [b.subviews copy]) {
+        [v removeFromSuperview];
+    }
+    NSTextField *h = label(@"预设", 12, NSFontWeightMedium, NSColor.secondaryLabelColor);
+    [h setFrameOrigin:NSMakePoint(PAD, 10)];
+    [b addSubview:h];
+    CGFloat y = 30;
+    NSArray *ps = self.presets;
+    for (NSInteger i = 0; i < (NSInteger)ps.count; i++) {
+        NSImageView *ck = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:@"checkmark"
+                                                                    accessibilityDescription:nil]];
+        ck.contentTintColor = NSColor.controlAccentColor;
+        ck.frame = NSMakeRect(PAD + 6, y + 8, 16, 16);
+        ck.tag = 100 + i;
+        [b addSubview:ck];
+        NSTextField *n = label(ps[i][@"name"], 13, NSFontWeightRegular, NSColor.labelColor);
+        n.lineBreakMode = NSLineBreakByTruncatingTail;
+        n.frame = NSMakeRect(TITLE_X, y + 7, PANEL_W - TITLE_X - PAD - 90, 18);
+        [b addSubview:n];
+        NSTextField *sz = numLabel(90);
+        sz.stringValue = [NSString stringWithFormat:@"%@ × %@", ps[i][@"w"], ps[i][@"h"]];
+        sz.frame = NSMakeRect(PANEL_W - PAD - 90, y + 8, 90, 17);
+        [b addSubview:sz];
+        NSButton *rb = [self rowButtonAt:y height:PRESET_H action:@selector(pickPreset:) tag:i in:b];
+        NSMenu *menu = [NSMenu new];
+        for (NSString *title in @[ @"用当前尺寸覆盖", @"删除" ]) {
+            NSMenuItem *it = [menu addItemWithTitle:title
+                                             action:[title isEqualToString:@"删除"] ? @selector(deletePreset:)
+                                                                                     : @selector(overwritePreset:)
+                                      keyEquivalent:@""];
+            it.target = self;
+            it.tag = i;
+        }
+        rb.menu = menu;
+        rb.toolTip = @"点一下切换，右键可覆盖或删除";
+        y += PRESET_H;
+    }
+    // 新建预设：自动起名，当前尺寸已经存过时变灰
+    y -= 4;
+    rowTitle(b, y, @"plus", YES, @"新建预设").tag = 99;
+    [self rowButtonAt:y height:ROW_H action:@selector(addPreset:) tag:99 in:b];
+    y += ROW_H + 2;
+    separator(b, y);
+    NSTextField *q = label(@"退出", 13, NSFontWeightRegular, NSColor.labelColor);
+    [q setFrameOrigin:NSMakePoint(PAD, y + 10)];
+    [b addSubview:q];
+    NSButton *qb = [self rowButtonAt:y height:38 action:@selector(terminate:) tag:0 in:b];
+    qb.target = NSApp;
+    y += 42;
+
+    b.frame = NSMakeRect(0, b.frame.origin.y, PANEL_W, y);
+    NSRect f = self.root.frame;
+    f.size.height = NSMaxY(b.frame);
+    self.root.frame = f;
+    self.popover.contentSize = f.size;
+    [self refresh];
+}
+
+// 显示大小能拖到的宽度：比例不变时高度也要在允许范围内
+- (void)sliderRange:(double *)lo hi:(double *)hi {
+    *lo = MAX(WMIN, ceil(HMIN / _ratio));
+    *hi = MIN(WMAX, floor(HMAX / _ratio));
+}
+
+- (void)refresh {
+    // 等 Crisp 这类工具退出的那几秒也算「正在开启」
+    BOOL waiting = otherAppsQuitting();
+    BOOL on = displayIsOn() || waiting, closing = displayIsClosing(), mirrored = displayIsMirrored();
+    BOOL ready = on && mirrored && !closing;
+    self.power.state = on && !closing ? NSControlStateValueOn : NSControlStateValueOff;
+    self.power.enabled = !closing && !waiting && !_terminating;
+    NSString *st = closing ? @"正在关闭" : !on ? @"已关闭" : ready ? @"已开启" : @"正在开启";
+    self.stateLabel.stringValue = ready ? [NSString stringWithFormat:@"%@ · %d × %d", st, _w, _h] : st;
+    self.stateLabel.textColor = ready ? NSColor.controlAccentColor : NSColor.secondaryLabelColor;
+    self.statusItem.button.image = statusImage(on);
+
+    [self.modelBtn.menu removeAllItems];
+    [self.modelBtn addItemWithTitle:@(kModels[_model].name)];
+    [self.modelBtn sizeToFit];
+    NSRect f = self.modelBtn.frame;
+    CGFloat w = MIN(f.size.width, PANEL_W - TITLE_X - 70);
+    self.modelBtn.frame = NSMakeRect(PANEL_W - PAD + 4 - w, f.origin.y, w, f.size.height);
+
+    // 比例：相对机型推荐宽度，越大一屏放的内容越多
+    self.sizeLabel.stringValue =
+        [NSString stringWithFormat:@"%d × %d · %ld%%", _w, _h, lround(_w * 100.0 / kModels[_model].w)];
+    double lo, hi;
+    [self sliderRange:&lo hi:&hi];
+    self.slider.minValue = lo;
+    self.slider.maxValue = hi;
+    self.slider.doubleValue = _w;
+    self.heightLabel.stringValue = [NSString stringWithFormat:@"%d", _h];
+
+    NSInteger match = [self matchingPreset];
+    for (NSView *v in self.presetBox.subviews) {
+        if (v.tag >= 100) {
+            v.hidden = v.tag - 100 != match;
+        } else if (v.tag == 99 && [v isKindOfClass:NSButton.class]) {
+            ((NSButton *)v).enabled = match < 0;
+        } else if (v.tag == 99) {
+            ((NSTextField *)v).textColor = match < 0 ? NSColor.labelColor : NSColor.tertiaryLabelColor;
+        }
+    }
+}
+
+#pragma mark 机型菜单
+
+// 机型项右侧带推荐尺寸
+- (void)addModel:(int)i to:(NSMenu *)m {
+    NSMenuItem *it = [m addItemWithTitle:@(kModels[i].name) action:@selector(pickModel:) keyEquivalent:@""];
     it.target = self;
     it.tag = i;
-    NSMutableAttributedString *as = [[NSMutableAttributedString alloc]
-        initWithString:t
-            attributes:@{NSFontAttributeName : f, NSParagraphStyleAttributeName : ps}];
+    it.state = i == _model ? NSControlStateValueOn : NSControlStateValueOff;
+    NSFont *f = [NSFont menuFontOfSize:0];
+    NSMutableParagraphStyle *ps = [NSMutableParagraphStyle new];
+    ps.tabStops = @[ [[NSTextTab alloc] initWithTextAlignment:NSTextAlignmentRight location:220 options:@{}] ];
+    NSMutableAttributedString *as =
+        [[NSMutableAttributedString alloc] initWithString:it.title
+                                               attributes:@{NSFontAttributeName : f, NSParagraphStyleAttributeName : ps}];
     [as appendAttributedString:[[NSAttributedString alloc]
                                    initWithString:[NSString stringWithFormat:@"\t%d × %d", kModels[i].w, kModels[i].h]
                                        attributes:@{
-                                           NSFontAttributeName : nf,
+                                           NSFontAttributeName : [NSFont monospacedDigitSystemFontOfSize:f.pointSize - 1
+                                                                                                 weight:NSFontWeightRegular],
                                            NSForegroundColorAttributeName : NSColor.secondaryLabelColor,
                                            NSParagraphStyleAttributeName : ps
                                        }]];
     it.attributedTitle = as;
-    return it;
 }
 
-- (void)buildModelMenuForGroup:(int)g {
-    NSMenu *menu = [NSMenu new];
-    menu.autoenablesItems = NO;
-    NSString *gn = groupNames()[g];
-    NSMenu *sub = nil;
-    for (int i = 0; i < NMODEL; i++) {
-        if (![gn isEqualToString:@(kModels[i].group)]) {
-            continue;
-        }
-        NSString *name = @(kModels[i].name);
-        if (!kModels[i].series) {
-            [menu addItem:[self modelItem:i title:name]];
-            continue;
-        }
-        if (i == 0 || !kModels[i - 1].series || strcmp(kModels[i - 1].series, kModels[i].series) != 0) {
-            NSMenuItem *si = [[NSMenuItem alloc] initWithTitle:@(kModels[i].series) action:nil keyEquivalent:@""];
-            si.tag = SERIES_TAG + i;
-            sub = [NSMenu new];
-            sub.autoenablesItems = NO;
-            si.submenu = sub;
-            [menu addItem:si];
-        }
-        [sub addItem:[self modelItem:i title:name]];
-    }
-    self.modelBtn.list = menu;
-    _menuGroup = g;
-}
-
-- (BOOL)presetIsCurrent:(NSDictionary *)d {
-    return modelIndexByName(d[@"model"]) == _model && [d[@"w"] intValue] == _w && [d[@"h"] intValue] == _h;
-}
-
-- (NSMenuItem *)item:(NSString *)t symbol:(NSString *)sym action:(SEL)a tag:(NSInteger)tag in:(NSMenu *)m {
-    NSMenuItem *it = [m addItemWithTitle:t action:a keyEquivalent:@""];
-    it.target = self;
-    it.tag = tag;
-    it.image = [NSImage imageWithSystemSymbolName:sym accessibilityDescription:nil];
-    return it;
-}
-
-- (void)buildPills {
-    for (NSView *v in [self.pillBox.subviews copy]) {
-        [v removeFromSuperview];
-    }
-    NSArray *ps = self.presets;
-    for (NSInteger i = 0; i <= (NSInteger)ps.count; i++) {
-        BOOL add = (i == (NSInteger)ps.count);
-        PillButton *p = [[PillButton alloc] initWithFrame:NSMakeRect(0, 0, 60, 28)];
-        p.index = i;
-        p.target = self;
-        if (add) {
-            p.title = @"存为预设";
-            p.symbol = @"plus";
-            p.style = PB_ADD;
-            p.action = @selector(addPreset:);
-        } else {
-            p.title = ps[i][@"name"];
-            p.action = @selector(pickPreset:);
-            p.toolTip = [NSString stringWithFormat:@"%@ × %@", ps[i][@"w"], ps[i][@"h"]];
-            NSMenu *m = [NSMenu new];
-            [self item:@"改名…" symbol:@"pencil" action:@selector(renamePreset:) tag:i in:m];
-            [self item:@"用当前尺寸覆盖"
-                symbol:@"arrow.triangle.2.circlepath"
-                action:@selector(overwritePreset:)
-                   tag:i
-                    in:m];
-            [m addItem:[NSMenuItem separatorItem]];
-            [self item:@"删除" symbol:@"trash" action:@selector(deletePreset:) tag:i in:m];
-            p.contextMenu = m;
-        }
-        [self.pillBox addSubview:p];
-    }
-}
-
-// 排预设按钮，放不下就换行；行数变了窗口跟着变高
-- (void)layoutPills {
-    CGFloat x = 0, y = 0, cw = self.pillBox.frame.size.width, h = 28, gap = 8;
-    for (PillButton *p in self.pillBox.subviews) {
-        CGFloat w = MIN(cw, [p fitWidth]);
-        if (x > 0 && x + w > cw) {
-            x = 0;
-            y += h + gap;
-        }
-        p.frame = NSMakeRect(x, y, w, h);
-        x += w + gap;
-    }
-    CGFloat boxH = y + h;
-    self.pillBox.frame = NSMakeRect(PAD, PILLS_TOP, cw, boxH);
-    CGFloat H = PILLS_TOP + boxH + PAD;
-    NSRect f = self.win.frame;
-    NSRect cr = [self.win contentRectForFrameRect:f];
-    CGFloat dy = H - cr.size.height;
-    if (dy != 0) {
-        f.origin.y -= dy;
-        f.size.height += dy;
-        [self.win setFrame:f display:YES animate:self.win.visible];
-    }
-}
-
-- (void)refresh {
-    const Model *m = &kModels[_model];
-    BOOL on = displayIsOn(), closing = displayIsClosing(), mirrored = displayIsMirrored();
-    // 总开关
-    [self.power setOn:on animated:self.win.visible];
-    self.power.busy = closing;
-    self.stateLabel.stringValue = closing ? @"正在关闭" : !on ? @"已关闭" : mirrored ? @"远程模式已开启" : @"正在开启";
-    self.stateLabel.textColor = (on && mirrored) ? ThemeInk() : NSColor.secondaryLabelColor;
-    // 品牌和型号联动
-    int g = groupOfModel(_model);
-    self.brandSeg.selected = g;
-    if (g != _menuGroup) {
-        [self buildModelMenuForGroup:g];
-    }
-    self.modelBtn.title = @(m->name);
-    self.modelBtn.selectedTag = _model;
-    for (NSMenuItem *it in self.modelBtn.list.itemArray) {
-        BOOL hit = it.tag == _model;
-        for (NSMenuItem *c in it.submenu.itemArray) {
-            c.state = (c.tag == _model) ? NSControlStateValueOn : NSControlStateValueOff;
-            if (c.tag == _model) {
-                hit = YES;
-                self.modelBtn.selectedTag = it.tag;
+// 点开机型菜单时现搭：第一项是按钮标题，然后每个品牌一个子菜单，有系列的（iPhone 按代）再分一层
+- (void)menuNeedsUpdate:(NSMenu *)menu {
+    [menu removeAllItems];
+    [menu addItemWithTitle:@(kModels[_model].name) action:nil keyEquivalent:@""];
+    for (NSString *g in groupNames()) {
+        NSMenu *gm = [NSMenu new];
+        NSMenu *sub = nil;
+        for (int i = 0; i < NMODEL; i++) {
+            if (![g isEqualToString:@(kModels[i].group)]) {
+                continue;
             }
+            if (!kModels[i].series) {
+                [self addModel:i to:gm];
+                continue;
+            }
+            if (i == 0 || !kModels[i - 1].series || strcmp(kModels[i - 1].series, kModels[i].series) != 0) {
+                sub = [NSMenu new];
+                NSMenuItem *si = [gm addItemWithTitle:@(kModels[i].series) action:nil keyEquivalent:@""];
+                si.submenu = sub;
+                BOOL cur = kModels[_model].series && strcmp(kModels[_model].series, kModels[i].series) == 0;
+                si.state = cur ? NSControlStateValueOn : NSControlStateValueOff;
+            }
+            [self addModel:i to:sub];
         }
-        it.state = hit ? NSControlStateValueOn : NSControlStateValueOff;
+        NSMenuItem *gi = [menu addItemWithTitle:g action:nil keyEquivalent:@""];
+        gi.submenu = gm;
+        gi.state = [g isEqualToString:@(kModels[_model].group)] ? NSControlStateValueOn : NSControlStateValueOff;
     }
-    CGFloat cardW = self.modelBtn.superview.frame.size.width, bw = [self.modelBtn fitWidthMax:cardW - 88 - 6];
-    self.modelBtn.frame = NSMakeRect(cardW - 6 - bw, ROW_H + (ROW_H - 28) / 2, bw, 28);
-    // 宽高
-    [self syncField:self.wField value:_w];
-    [self syncField:self.hField value:_h];
-    self.wStep.canMinus = _w > WMIN;
-    self.wStep.canPlus = _w < WMAX;
-    self.hStep.canMinus = _h > HMIN;
-    self.hStep.canPlus = _h < HMAX;
-    // 预设：当前这条高亮并带下拉箭头；当前尺寸已经存过时「存为预设」变淡
-    NSArray *presets = self.presets;
-    BOOL saved = NO;
-    for (PillButton *p in self.pillBox.subviews) {
-        if (p.style == PB_ADD) {
-            continue;
-        }
-        BOOL cur = p.index < (NSInteger)presets.count && [self presetIsCurrent:presets[p.index]];
-        saved |= cur;
-        p.style = cur ? PB_SELECTED : PB_PLAIN;
-        p.trailing = cur ? @"chevron.down" : nil;
-        [p setNeedsDisplay:YES];
-    }
-    for (PillButton *p in self.pillBox.subviews) {
-        if (p.style == PB_ADD) {
-            p.dimmed = saved;
-            p.alphaValue = saved ? 0.35 : 1;
-        }
-    }
-    [self layoutPills];
+}
+
+- (void)menuDidClose:(NSMenu *)menu {
+    [self refresh];
 }
 
 #pragma mark 操作
 
 - (void)setW:(int)w h:(int)h {
+    [self showW:w h:h];
+    [self scheduleApply:0.25];
+}
+
+// 只改数值和界面，不碰虚拟屏（拖滑块的过程中用）
+- (void)showW:(int)w h:(int)h {
     _w = MAX(WMIN, MIN(WMAX, w));
     _h = MAX(HMIN, MIN(HMAX, h));
     [self refresh];
-    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(applyNow) object:nil];
-    [self performSelector:@selector(applyNow) withObject:nil afterDelay:0.25];
 }
 
-- (void)stepW:(int)dw h:(int)dh {
-    [self.win makeFirstResponder:nil];
-    [self setW:_w + dw * STEP h:_h + dh * STEP];
+// 每换一次分辨率，系统要重新配置虚拟屏和镜像它的物理屏，连着换会排队，
+// 所以两次之间至少隔 APPLY_GAP 秒；期间再有改动只记最后一次
+#define APPLY_GAP 1.5
+static CFAbsoluteTime lastApply;
+
+- (void)scheduleApply:(double)delay {
+    double wait = MAX(delay, lastApply + APPLY_GAP - CFAbsoluteTimeGetCurrent());
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(applyNow) object:nil];
+    [self performSelector:@selector(applyNow) withObject:nil afterDelay:wait];
 }
 
 - (void)applyNow {
+    if (displayIsOn() && !displayIsClosing()) {
+        lastApply = CFAbsoluteTimeGetCurrent();
+    }
     displayResize(_w, _h);
     [self save];
 }
 
-// 把输入框显示的数字对齐到实际值；正在编辑时改编辑器里的文字，免得留下一个超范围的数
-- (void)syncField:(NSTextField *)f value:(int)v {
-    NSString *str = [NSString stringWithFormat:@"%d", v];
-    NSText *ed = f.currentEditor;
-    if (ed) {
-        if (![ed.string isEqualToString:str]) {
-            ed.string = str;
-            [ed selectAll:nil];
-        }
-    } else {
-        f.intValue = v;
+// 换一整套尺寸（机型、预设）：比例跟着换
+- (void)useW:(int)w h:(int)h {
+    _ratio = (double)MAX(HMIN, MIN(HMAX, h)) / MAX(WMIN, MIN(WMAX, w));
+    [self setW:w h:h];
+}
+
+// 显示大小：宽度按 10 取整，高度按比例算。拖动中只更新数字，松手才应用
+- (void)slid:(NSSlider *)s {
+    int w = (int)lround(s.doubleValue / STEP) * STEP;
+    double lo, hi;
+    [self sliderRange:&lo hi:&hi];
+    w = (int)MAX(lo, MIN(hi, w));
+    // 鼠标键还按着就是在拖。不看事件类型：新系统的滑块拖动时事件类型不一定是拖动
+    BOOL dragging = (NSEvent.pressedMouseButtons & 1) != 0;
+    if (w != _w) {
+        [self showW:w h:(int)lround(w * _ratio)];
+    }
+    if (!dragging) {
+        [self scheduleApply:0];
     }
 }
 
-// 输入为空或不是正数时恢复原值
-- (void)typed:(NSTextField *)f {
-    int v = f.intValue;
-    if (v <= 0) {
-        v = (f == self.wField) ? _w : _h;
-    }
-    if (f == self.wField) {
-        [self setW:v h:_h];
-    } else {
-        [self setW:_w h:v];
-    }
-    // 结束编辑时控件会把输入的原文写回，等它写完再对齐一次
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self syncField:self.wField value:self->_w];
-        [self syncField:self.hField value:self->_h];
-    });
-}
-
-// 输入了非数字也允许结束编辑，随后由 typed: 恢复原值
-- (BOOL)control:(NSControl *)c didFailToFormatString:(NSString *)str errorDescription:(NSString *)e {
-    return YES;
-}
-
-// 输入框里按上下方向键也走一步
-- (BOOL)control:(NSControl *)c textView:(NSTextView *)tv doCommandBySelector:(SEL)s {
-    int d = s == @selector(moveUp:) ? 1 : s == @selector(moveDown:) ? -1 : 0;
-    if (!d || (c != self.wField && c != self.hField)) {
-        return NO;
-    }
-    int v = tv.string.intValue + d * STEP;
-    if (c == self.wField) {
-        [self setW:v h:_h];
-    } else {
-        [self setW:_w h:v];
-    }
-    return YES;
-}
-
-// 切品牌：自动选中该品牌第一个型号并套用推荐尺寸
-- (void)pickBrand:(NSInteger)g {
-    if (g == groupOfModel(_model)) {
-        return;
-    }
-    [self.win makeFirstResponder:nil];
-    _model = firstModelOfGroup((int)g);
-    [self setW:kModels[_model].w h:kModels[_model].h];
+// 画面高度：点 − 或 + 每次 ±10，宽度不动
+- (void)stepped:(NSSegmentedControl *)s {
+    int d = s.selectedSegment == 0 ? -1 : 1;
+    int h = MAX(HMIN, MIN(HMAX, _h + d * STEP));
+    _ratio = (double)h / _w;
+    [self setW:_w h:h];
 }
 
 - (void)pickModel:(NSMenuItem *)it {
@@ -472,31 +508,113 @@
         return;
     }
     _model = (int)it.tag;
-    [self setW:kModels[_model].w h:kModels[_model].h];
+    [self useW:kModels[_model].w h:kModels[_model].h];
 }
 
-// 开或关远程画面（窗口按钮和 Dock 菜单共用）。关闭是异步的，期间按钮显示「正在关闭」并且不接受点击
+- (void)pickPreset:(NSButton *)b {
+    NSArray *ps = self.presets;
+    if (b.tag >= (NSInteger)ps.count) {
+        return;
+    }
+    NSDictionary *d = ps[b.tag];
+    int mi = modelIndexByName(d[@"model"]);
+    if (mi >= 0) {
+        _model = mi;
+    }
+    [self useW:[d[@"w"] intValue] h:[d[@"h"] intValue]];
+}
+
+// 新建预设不用输入：名字是机型加尺寸
+- (void)addPreset:(id)s {
+    if ([self matchingPreset] >= 0) {
+        return;
+    }
+    NSMutableArray *ps = [self.presets mutableCopy];
+    [ps addObject:@{
+        @"name" : [NSString stringWithFormat:@"%s %d×%d", kModels[_model].name, _w, _h],
+        @"model" : @(kModels[_model].name),
+        @"w" : @(_w),
+        @"h" : @(_h)
+    }];
+    [self setPresets:ps];
+}
+
+- (void)overwritePreset:(NSMenuItem *)it {
+    NSMutableArray *ps = [self.presets mutableCopy];
+    if (it.tag >= (NSInteger)ps.count) {
+        return;
+    }
+    NSMutableDictionary *d = [ps[it.tag] mutableCopy];
+    d[@"model"] = @(kModels[_model].name);
+    d[@"w"] = @(_w);
+    d[@"h"] = @(_h);
+    ps[it.tag] = d;
+    [self setPresets:ps];
+}
+
+- (void)deletePreset:(NSMenuItem *)it {
+    NSMutableArray *ps = [self.presets mutableCopy];
+    if (it.tag >= (NSInteger)ps.count) {
+        return;
+    }
+    [ps removeObjectAtIndex:it.tag];
+    [self setPresets:ps];
+}
+
+#pragma mark 开关
+
+// 开或关远程画面。关闭是异步的，期间开关不可用
 - (void)setRemoteOn:(BOOL)on {
-    if (displayIsClosing() || _terminating) {
+    if (displayIsClosing() || otherAppsQuitting() || _terminating) {
         return;
     }
     if (on) {
-        if (!displayOn(_w, _h)) {
-            NSAlert *a = [NSAlert new];
-            a.messageText = @"虚拟屏创建失败";
-            a.informativeText = @"需要 macOS 12 或更新的版本。";
-            [a runModal];
-        }
+        otherAppsQuitThen(^{
+            [self turnOn];
+        });
     } else {
         displayOff(^{
+            otherAppsRelaunch();
             [self refresh];
         });
     }
     [self refresh];
 }
 
-- (void)powerClicked:(id)s {
-    [self setRemoteOn:!displayIsOn()];
+// 其他虚拟屏工具让开之后才建虚拟屏。等的期间用户要退出程序，就不建了，把它们打开后放行退出
+- (void)turnOn {
+    if (_terminating) {
+        otherAppsRelaunch();
+        [NSApp replyToApplicationShouldTerminate:YES];
+        return;
+    }
+    if (!displayOn(_w, _h)) {
+        otherAppsRelaunch();
+        NSAlert *a = [NSAlert new];
+        a.messageText = @"虚拟屏创建失败";
+        a.informativeText = @"需要 macOS 12 或更新的版本。";
+        [a runModal];
+    }
+    [self refresh];
+}
+
+- (void)powerClicked:(NSSwitch *)s {
+    [self setRemoteOn:s.state == NSControlStateValueOn];
+}
+
+- (void)followClicked:(NSSwitch *)s {
+    [self.ud setBool:s.state == NSControlStateValueOn forKey:@"followUU"];
+}
+
+// UU 连上、断开的那一刻才动作：连着时手动关掉远程画面，不会被打开回来
+- (void)uuChanged:(BOOL)connected {
+    if (self.followUU.state != NSControlStateValueOn || displayIsPreview()) {
+        return;
+    }
+    BOOL on = displayIsOn() || otherAppsQuitting();
+    if (connected != on) {
+        [self setRemoteOn:connected];
+    }
 }
 
 // 显示器那边有变化：镜像设好了，或者虚拟屏被系统回收了。回收后按当前尺寸自动重建，一分钟内最多三次，免得反复失败时闪个不停
@@ -511,6 +629,10 @@
             displayAbandon();
         }
     }
+    // 虚拟屏放弃重建，或者排列一直被改掉而自动关闭了：远程画面已经关掉，把让出来的工具打开
+    if (!displayIsOn() && !displayIsClosing() && !otherAppsQuitting() && !_terminating) {
+        otherAppsRelaunch();
+    }
     [self refresh];
 }
 
@@ -521,209 +643,57 @@
     });
 }
 
-// 在按钮旁弹出小气泡输入名称，回车确认
-- (void)askNameFrom:(NSView *)anchor initial:(NSString *)init done:(void (^)(NSString *))done {
-    [self.namePop close];
-    NSView *v = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 250, 48)];
-    NSTextField *tf = [[NSTextField alloc] initWithFrame:NSMakeRect(12, 12, 180, 24)];
-    tf.stringValue = init;
-    tf.placeholderString = @"预设名称";
-    tf.bezelStyle = NSTextFieldRoundedBezel;
-    tf.focusRingType = NSFocusRingTypeNone;
-    tf.target = self;
-    tf.action = @selector(nameOK:);
-    tf.cell.sendsActionOnEndEditing = NO;
-    [v addSubview:tf];
-    NSButton *ok = [NSButton buttonWithImage:Sym(@"checkmark", 12, NSFontWeightSemibold, NSColor.whiteColor)
-                                      target:self
-                                      action:@selector(nameOK:)];
-    ok.bezelStyle = NSBezelStyleRounded;
-    ok.keyEquivalent = @"\r";
-    ok.bezelColor = ThemeA(1);
-    ok.contentTintColor = NSColor.whiteColor;
-    ok.frame = NSMakeRect(194, 7, 50, 32);
-    [v addSubview:ok];
-    NSViewController *vc = [NSViewController new];
-    vc.view = v;
-    NSPopover *pop = [NSPopover new];
-    pop.contentViewController = vc;
-    pop.behavior = NSPopoverBehaviorTransient;
-    pop.contentSize = v.frame.size;
-    self.namePop = pop;
-    self.nameField = tf;
-    self.nameDone = done;
-    [pop showRelativeToRect:anchor.bounds ofView:anchor preferredEdge:NSRectEdgeMaxY];
-    [v.window makeFirstResponder:tf];
-}
-
-- (void)nameOK:(id)s {
-    NSString *n = [self.nameField.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-    if (!n.length) {
-        NSBeep();
-        return;
-    }
-    void (^done)(NSString *) = self.nameDone;
-    self.nameDone = nil;
-    [self.namePop close];
-    self.namePop = nil;
-    if (done) {
-        done(n);
-    }
-}
-
-- (PillButton *)pillAt:(NSInteger)i {
-    for (PillButton *p in self.pillBox.subviews) {
-        if (p.index == i) {
-            return p;
-        }
-    }
-    return nil;
-}
-
-- (void)addPreset:(PillButton *)s {
-    NSString *mn = @(kModels[_model].name);
-    [self askNameFrom:s
-              initial:mn
-                 done:^(NSString *n) {
-                     NSMutableArray *ps = [self.presets mutableCopy];
-                     [ps addObject:@{
-                         @"name" : n,
-                         @"model" : @(kModels[self->_model].name),
-                         @"w" : @(self->_w),
-                         @"h" : @(self->_h)
-                     }];
-                     [self setPresets:ps];
-                     [self buildPills];
-                     [self refresh];
-                 }];
-}
-
-// 点未选中的预设是切换；点当前这条弹出改名、覆盖、删除
-- (void)pickPreset:(PillButton *)p {
-    if (p.style == PB_SELECTED) {
-        [p popMenu];
-        return;
-    }
-    NSArray *ps = self.presets;
-    if (p.index >= (NSInteger)ps.count) {
-        return;
-    }
-    NSDictionary *d = ps[p.index];
-    int mi = modelIndexByName(d[@"model"]);
-    if (mi >= 0) {
-        _model = mi;
-    }
-    [self.win makeFirstResponder:nil];
-    [self setW:[d[@"w"] intValue] h:[d[@"h"] intValue]];
-}
-
-- (void)renamePreset:(NSMenuItem *)it {
-    NSInteger i = it.tag;
-    if (i >= (NSInteger)self.presets.count) {
-        return;
-    }
-    [self askNameFrom:[self pillAt:i] ?: self.pillBox
-              initial:self.presets[i][@"name"]
-                 done:^(NSString *n) {
-                     NSMutableArray *ps = [self.presets mutableCopy];
-                     if (i >= (NSInteger)ps.count) {
-                         return;
-                     }
-                     NSMutableDictionary *d = [ps[i] mutableCopy];
-                     d[@"name"] = n;
-                     ps[i] = d;
-                     [self setPresets:ps];
-                     [self buildPills];
-                     [self refresh];
-                 }];
-}
-
-- (void)overwritePreset:(NSMenuItem *)it {
-    NSMutableArray *ps = [self.presets mutableCopy];
-    if (it.tag >= (NSInteger)ps.count) {
-        return;
-    }
-    NSMutableDictionary *d = [ps[it.tag] mutableCopy];
-    d[@"model"] = @(kModels[_model].name);
-    d[@"w"] = @(_w);
-    d[@"h"] = @(_h);
-    ps[it.tag] = d;
-    [self setPresets:ps];
-    [self refresh];
-}
-
-- (void)deletePreset:(NSMenuItem *)it {
-    NSMutableArray *ps = [self.presets mutableCopy];
-    if (it.tag >= (NSInteger)ps.count) {
-        return;
-    }
-    [ps removeObjectAtIndex:it.tag];
-    [self setPresets:ps];
-    [self buildPills];
-    [self refresh];
-}
-
 #pragma mark 应用生命周期
 
-- (void)showWindow:(id)sender {
-    [self.win makeKeyAndOrderFront:nil];
-    [NSApp activateIgnoringOtherApps:YES];
+// 菜单栏图标：圆角方块里一道折线，模板图跟随菜单栏深浅色。关闭时方块是空心的，开启时是实心的、折线镂空
+static NSImage *statusImage(BOOL on) {
+    NSImage *im = [NSImage imageWithSize:NSMakeSize(18, 18)
+                                 flipped:NO
+                          drawingHandler:^BOOL(NSRect r) {
+                              NSBezierPath *p = [NSBezierPath bezierPath];
+                              [p moveToPoint:NSMakePoint(4.5, 7.5)];
+                              [p lineToPoint:NSMakePoint(8, 11)];
+                              [p lineToPoint:NSMakePoint(10, 7)];
+                              [p lineToPoint:NSMakePoint(13.5, 10.5)];
+                              p.lineWidth = 1.8;
+                              p.lineCapStyle = NSLineCapStyleRound;
+                              p.lineJoinStyle = NSLineJoinStyleRound;
+                              [NSColor.blackColor set];
+                              if (on) {
+                                  [RR(NSMakeRect(1, 2, 16, 14), 4) fill];
+                                  [NSGraphicsContext.currentContext setCompositingOperation:NSCompositingOperationClear];
+                              } else {
+                                  NSBezierPath *box = RR(NSMakeRect(1.5, 2.5, 15, 13), 3.5);
+                                  box.lineWidth = 1;
+                                  [box stroke];
+                              }
+                              [p stroke];
+                              return YES;
+                          }];
+    im.template = YES;
+    return im;
 }
 
-- (void)dockPreset:(NSMenuItem *)it {
-    NSArray *ps = self.presets;
-    if (it.tag >= (NSInteger)ps.count) {
+- (void)togglePanel:(id)sender {
+    if (self.popover.shown) {
+        [self.popover performClose:nil];
         return;
     }
-    NSDictionary *d = ps[it.tag];
-    int mi = modelIndexByName(d[@"model"]);
-    if (mi >= 0) {
-        _model = mi;
-    }
-    [self setW:[d[@"w"] intValue] h:[d[@"h"] intValue]];
-}
-
-- (void)dockToggle:(id)sender {
-    [self setRemoteOn:!displayIsOn()];
-}
-
-- (void)buildMainMenu {
-    NSMenu *bar = [NSMenu new];
-    NSMenuItem *appItem = [NSMenuItem new];
-    [bar addItem:appItem];
-    NSMenu *am = [NSMenu new];
-    [am addItemWithTitle:@"打开设置" action:@selector(showWindow:) keyEquivalent:@","];
-    [am addItem:[NSMenuItem separatorItem]];
-    [am addItemWithTitle:@"隐藏远程模式" action:@selector(hide:) keyEquivalent:@"h"];
-    [am addItemWithTitle:@"退出远程模式" action:@selector(terminate:) keyEquivalent:@"q"];
-    appItem.submenu = am;
-    NSMenuItem *editItem = [NSMenuItem new];
-    [bar addItem:editItem];
-    NSMenu *em = [[NSMenu alloc] initWithTitle:@"编辑"];
-    [em addItemWithTitle:@"撤销" action:@selector(undo:) keyEquivalent:@"z"];
-    [em addItem:[NSMenuItem separatorItem]];
-    [em addItemWithTitle:@"剪切" action:@selector(cut:) keyEquivalent:@"x"];
-    [em addItemWithTitle:@"拷贝" action:@selector(copy:) keyEquivalent:@"c"];
-    [em addItemWithTitle:@"粘贴" action:@selector(paste:) keyEquivalent:@"v"];
-    [em addItemWithTitle:@"全选" action:@selector(selectAll:) keyEquivalent:@"a"];
-    editItem.submenu = em;
-    NSMenuItem *winItem = [NSMenuItem new];
-    [bar addItem:winItem];
-    NSMenu *wm = [[NSMenu alloc] initWithTitle:@"窗口"];
-    [wm addItemWithTitle:@"关闭" action:@selector(performClose:) keyEquivalent:@"w"];
-    [wm addItemWithTitle:@"最小化" action:@selector(performMiniaturize:) keyEquivalent:@"m"];
-    winItem.submenu = wm;
-    NSApp.mainMenu = bar;
+    [self refresh];
+    [NSApp activateIgnoringOtherApps:YES];
+    [self.popover showRelativeToRect:self.statusItem.button.bounds
+                              ofView:self.statusItem.button
+                       preferredEdge:NSRectEdgeMinY];
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification *)n {
     [self load];
-    [self buildMainMenu];
-    [self buildWindow];
-    [self buildPills];
-    [self.win center];
-    // 不让系统对本程序做 App Nap：窗口关掉后程序在后台，被降频的话定时器会晚很多，
-    // 关闭时等虚拟屏下线、Dock 菜单切预设都靠定时器
+    self.statusItem = [NSStatusBar.systemStatusBar statusItemWithLength:NSSquareStatusItemLength];
+    self.statusItem.button.toolTip = @"远程模式";
+    self.statusItem.button.target = self;
+    self.statusItem.button.action = @selector(togglePanel:);
+    [self buildPanel];
+    // 不让系统对本程序做 App Nap：被降频的话定时器会晚很多，关闭时等虚拟屏下线靠定时器
     self.activity = [[NSProcessInfo processInfo] beginActivityWithOptions:NSActivityUserInitiatedAllowingIdleSystemSleep
                                                                    reason:@"控制虚拟显示器"];
     __weak AppDelegate *me = self;
@@ -734,20 +704,17 @@
                                                            selector:@selector(didWake:)
                                                                name:NSWorkspaceDidWakeNotification
                                                              object:nil];
-    // 上次被强杀或崩溃时物理屏没恢复：先恢复，稍等显示器稳定再开虚拟屏
-    if (displayRecoverFromCrash()) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1500 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
-            if (!self->_terminating) {
-                displayOn(self->_w, self->_h);
-                [self refresh];
-            }
-        });
-    } else {
-        displayOn(_w, _h);
-    }
+    // 打开时不自动开远程画面。上次被强杀或崩溃时物理屏没恢复、让出来的工具也没打开：这里补上
+    displayRecoverFromCrash();
+    otherAppsRelaunch();
+    uuWatchStart(^(BOOL connected) {
+        [me uuChanged:connected];
+    });
     [self refresh];
-    [self showWindow:nil];
-    [self.win makeFirstResponder:nil];
+    // 打开时弹出面板，让人知道它在菜单栏
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self togglePanel:nil];
+    });
 }
 
 // 退出前先把显示器恢复好：恢复是异步的，这里先答复「稍后」，恢复完成再放行
@@ -756,52 +723,37 @@
     if (_terminating) {
         return NSTerminateLater;
     }
+    // 正在等其他工具退出：等它们退完，由 turnOn 把它们打开后放行
+    if (otherAppsQuitting()) {
+        _terminating = YES;
+        [self refresh];
+        return NSTerminateLater;
+    }
     if (!displayIsOn() && !displayIsClosing()) {
+        otherAppsRelaunch();
         return NSTerminateNow;
     }
     _terminating = YES;
     displayOff(^{
+        otherAppsRelaunch();
         [NSApp replyToApplicationShouldTerminate:YES];
     });
     [self refresh];
     return NSTerminateLater;
 }
 
-- (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)s {
-    return NO;
-}
-
+// 已经在运行时再次打开（比如在访达里双击）：弹出面板
 - (BOOL)applicationShouldHandleReopen:(NSApplication *)s hasVisibleWindows:(BOOL)f {
-    [self showWindow:nil];
+    if (!self.popover.shown) {
+        [self togglePanel:nil];
+    }
     return NO;
-}
-
-- (NSMenu *)applicationDockMenu:(NSApplication *)sender {
-    NSMenu *m = [NSMenu new];
-    NSMenuItem *t = [[NSMenuItem alloc] initWithTitle:displayIsOn() ? @"关闭远程画面" : @"开启远程画面"
-                                               action:@selector(dockToggle:)
-                                        keyEquivalent:@""];
-    t.target = self;
-    [m addItem:t];
-    NSArray *ps = self.presets;
-    if (ps.count) {
-        [m addItem:[NSMenuItem separatorItem]];
-    }
-    for (NSUInteger i = 0; i < ps.count; i++) {
-        NSMenuItem *it = [[NSMenuItem alloc] initWithTitle:ps[i][@"name"]
-                                                    action:@selector(dockPreset:)
-                                             keyEquivalent:@""];
-        it.target = self;
-        it.tag = i;
-        it.state = [self presetIsCurrent:ps[i]] ? NSControlStateValueOn : NSControlStateValueOff;
-        [m addItem:it];
-    }
-    return m;
 }
 
 - (void)applicationWillTerminate:(NSNotification *)n {
     [self save];
     displayOffSync();
+    otherAppsRelaunch();
 }
 
 @end

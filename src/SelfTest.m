@@ -31,32 +31,36 @@ void selfTestSchedule(AppDelegate *app) {
     size_t h0 = CGDisplayPixelsHigh(CGMainDisplayID());
     __block int w = 0, h = 0, w2 = 0;
 
-    after(3.0, ^{
+    // 打开时不会自动开启，先点一次。有 Crisp 这类工具时要等它退出，所以多留几秒
+    after(0.3, ^{
+        [app setRemoteOn:YES];
+    });
+    after(6.0, ^{
         w = app.currentW;
         h = app.currentH;
         w2 = w < WMAX ? w + STEP : w - STEP;
-        check(displayIsOn() && displayIsMirrored(), @"启动后虚拟屏已开启并设好镜像");
+        check(displayIsOn() && displayIsMirrored(), @"点开启后虚拟屏已开启并设好镜像");
         check(mainDisplayIs(w, h), [NSString stringWithFormat:@"主屏是 %d×%d", w, h]);
         check(hasRestoreRecord(), @"恢复记录已写入");
         [app setW:w2 h:h];
     });
-    after(5.2, ^{
+    after(8.2, ^{
         check(mainDisplayIs(w2, h), [NSString stringWithFormat:@"调整后主屏是 %d×%d", w2, h]);
         [app setW:w h:h];
     });
-    after(6.6, ^{
+    after(9.6, ^{
         [app setRemoteOn:NO];
         check(displayIsClosing(), @"点关闭后进入正在关闭");
     });
-    after(9.4, ^{
+    after(12.4, ^{
         check(!displayIsOn() && !displayIsClosing(), @"关闭完成");
         check(mainDisplayIs(w0, h0), [NSString stringWithFormat:@"主屏回到 %zu×%zu", w0, h0]);
         check(!hasRestoreRecord(), @"恢复记录已清除");
     });
-    after(10.2, ^{
+    after(13.2, ^{
         [app setRemoteOn:YES];
     });
-    after(12.8, ^{
+    after(19.0, ^{
         check(displayIsOn() && displayIsMirrored() && mainDisplayIs(w, h), @"再次开启成功");
         printf("%s\n", failures ? [NSString stringWithFormat:@"自测结果：%d 项失败", failures].UTF8String
                                 : "自测结果：全部通过（退出后请确认显示器已恢复）");

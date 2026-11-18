@@ -19,6 +19,7 @@ void displayScheduleVerify(void);
 // 预览模式（--preview）：界面照常，开关只是假装，不建虚拟屏、不改任何显示器。要在其他调用之前设
 void displaySetPreview(void);
 
+BOOL displayIsPreview(void);
 BOOL displayIsOn(void);
 BOOL displayIsMirrored(void);
 BOOL displayIsClosing(void);

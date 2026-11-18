@@ -4,6 +4,9 @@
 
 static CGVirtualDisplay *vd;              // 当前虚拟屏；nil 表示没开
 static NSMutableDictionary *origModes;    // 显示器编号 -> 镜像前的原模式（CGDisplayModeRef），关闭时恢复
+// 显示器编号 -> 建虚拟屏之前的模式。虚拟屏一接上，系统可能先把物理屏从缩放的 HiDPI 模式切到原生分辨率，
+// 等到镜像时再记就记成了被改过的模式，所以建之前先拍一份
+static NSMutableDictionary *preModes;
 static BOOL mirrored;                     // 镜像已经设好
 static BOOL closing;                      // 正在关闭：镜像已解除，等着恢复原模式
 static unsigned gen;                      // 每建一次虚拟屏加一，用来识别过期的延迟回调
@@ -124,19 +127,42 @@ BOOL displayRecoverFromCrash(void) {
     return did;
 }
 
-// 只放一档模式，远程软件无法自行改成别的尺寸
-static CGVirtualDisplaySettings *settingsFor(int w, int h) {
+// 虚拟屏的一组档位：设定的那档，同比例下宽 WMIN–WMAX，同宽度下高 ±300，都每 STEP 一档。
+// 拖显示大小、调画面高度只是在档位间切换，系统切得又快又稳；重新定义档位（applySettings）
+// 要把虚拟屏和镜像整套重建，开着镜像时一次改动大了会把整机卡住。
+// first 不为 0 时把这档排第一个：重新定义档位时让虚拟屏先停在当前这档不动，再切过去。
+// 远程软件能切到别的档位，由 enforceTopology 改回来（系统本来也会给虚拟屏补上常见档位）
+static CGVirtualDisplaySettings *settingsFor(int w, int h, int firstW, int firstH) {
     CGVirtualDisplaySettings *s = [NSClassFromString(@"CGVirtualDisplaySettings") new];
-    s.hiDPI = 1;
-    CGVirtualDisplayMode *m =
-        [(CGVirtualDisplayMode *)[NSClassFromString(@"CGVirtualDisplayMode") alloc] initWithWidth:w
-                                                                                           height:h
-                                                                                      refreshRate:60];
-    if (!s || !m) {
+    Class M = NSClassFromString(@"CGVirtualDisplayMode");
+    if (!s || !M) {
         return nil;
     }
-    s.modes = @[ m ];
-    return s;
+    s.hiDPI = 1;
+    NSMutableArray *modes = [NSMutableArray array];
+    NSMutableSet *seen = [NSMutableSet set];
+    void (^add)(int, int) = ^(int x, int y) {
+        NSString *k = [NSString stringWithFormat:@"%dx%d", x, y];
+        if (x < WMIN || x > WMAX || y < HMIN || y > HMAX || [seen containsObject:k]) {
+            return;
+        }
+        [seen addObject:k];
+        [modes addObject:[(CGVirtualDisplayMode *)[M alloc] initWithWidth:x height:y refreshRate:60]];
+    };
+    if (firstW) {
+        add(firstW, firstH);
+    }
+    add(w, h);
+    // 和界面上拖显示大小的算法一致：宽度与 w 对齐到 STEP，高度 = 宽度 × 比例四舍五入
+    double r = (double)h / w;
+    for (int x = w - (w - WMIN) / STEP * STEP; x <= WMAX; x += STEP) {
+        add(x, (int)lround(x * r));
+    }
+    for (int y = h - 300; y <= h + 300; y += STEP) {
+        add(w, y);
+    }
+    s.modes = modes;
+    return modes.count ? s : nil;
 }
 
 // 虚拟屏可能被系统回收（比如睡眠唤醒后）。显示器配置变化、唤醒、收到终止回调时都来这里，稍等片刻再确认它还在不在
@@ -214,9 +240,12 @@ static BOOL applyTopology(CGDirectDisplayID vid) {
     uint32_t n = physicals(vid, p);
     BOOL added = NO;
     for (uint32_t i = 0; i < n; i++) {
-        CGDisplayModeRef m = origModes[@(p[i])] ? NULL : CGDisplayCopyDisplayMode(p[i]);
+        if (origModes[@(p[i])]) {
+            continue;
+        }
+        id m = preModes[@(p[i])] ?: CFBridgingRelease(CGDisplayCopyDisplayMode(p[i]));
         if (m) {
-            origModes[@(p[i])] = CFBridgingRelease(m);
+            origModes[@(p[i])] = m;
             added = YES;
         }
     }
@@ -302,6 +331,36 @@ static void reconfigured(CGDirectDisplayID d, CGDisplayChangeSummaryFlags f, voi
     });
 }
 
+// 屏幕先淡出到黑，建虚拟屏、设镜像、恢复原模式这几次显示器重新配置都藏在黑屏里，再淡入，看起来只切一次。
+// 预约 5 秒，期间出了岔子没淡入，到时系统也会自己恢复
+static CGDisplayFadeReservationToken fadeToken;
+
+static void fadeOut(void) {
+    if (fadeToken || CGAcquireDisplayFadeReservation(5, &fadeToken) != kCGErrorSuccess) {
+        return;
+    }
+    CGDisplayFade(fadeToken, 0.2, kCGDisplayBlendNormal, kCGDisplayBlendSolidColor, 0, 0, 0, true);
+}
+
+// delay 秒后淡入。用运行循环的定时器，理由同 scheduleFinishOff
+static void fadeInAfter(double delay) {
+    if (!fadeToken) {
+        return;
+    }
+    NSTimer *t = [NSTimer timerWithTimeInterval:delay
+                                        repeats:NO
+                                          block:^(NSTimer *x) {
+                                              if (!fadeToken) {
+                                                  return;
+                                              }
+                                              CGDisplayFade(fadeToken, 0.3, kCGDisplayBlendSolidColor,
+                                                            kCGDisplayBlendNormal, 0, 0, 0, true);
+                                              CGReleaseDisplayFadeReservation(fadeToken);
+                                              fadeToken = 0;
+                                          }];
+    [[NSRunLoop mainRunLoop] addTimer:t forMode:NSRunLoopCommonModes];
+}
+
 BOOL displayOn(int w, int h) {
     if (preview) {
         previewOn = YES;
@@ -315,12 +374,24 @@ BOOL displayOn(int w, int h) {
     }
     // 私有类按名字取，系统哪天移除了就走「创建失败」，不至于启动不了
     Class D = NSClassFromString(@"CGVirtualDisplayDescriptor"), V = NSClassFromString(@"CGVirtualDisplay");
-    CGVirtualDisplaySettings *st = settingsFor(w, h);
+    CGVirtualDisplaySettings *st = settingsFor(w, h, 0, 0);
     if (!D || !V || !st) {
         return NO;
     }
     curW = w;
     curH = h;
+    // 建虚拟屏之前拍下各显示器的模式。已经记过原模式的（虚拟屏丢了重建时）沿用旧的，这里拍到的是镜像中的模式，用不上
+    preModes = [NSMutableDictionary dictionary];
+    uint32_t n = 0;
+    CGDirectDisplayID ids[16];
+    if (CGGetOnlineDisplayList(16, ids, &n) == kCGErrorSuccess) {
+        for (uint32_t i = 0; i < n; i++) {
+            CGDisplayModeRef m = CGDisplayCopyDisplayMode(ids[i]);
+            if (m) {
+                preModes[@(ids[i])] = CFBridgingRelease(m);
+            }
+        }
+    }
     CGVirtualDisplayDescriptor *d = [D new];
     d.queue = dispatch_get_main_queue();
     d.name = @"远程模式";
@@ -335,9 +406,11 @@ BOOL displayOn(int w, int h) {
             displayScheduleVerify();
         });
     };
+    fadeOut();
     vd = [(CGVirtualDisplay *)[V alloc] initWithDescriptor:d];
     if (!vd || ![vd applySettings:st]) {
         vd = nil;
+        fadeInAfter(0);
         return NO;
     }
     static BOOL registered;
@@ -349,12 +422,14 @@ BOOL displayOn(int w, int h) {
     createdAt = CFAbsoluteTimeGetCurrent();
     unsigned g = ++gen;
     CGDirectDisplayID vid = vd.displayID;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1200 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 600 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
         if (!vd || g != gen || vd.displayID != vid) {
+            fadeInAfter(0);
             return;
         }
         applyTopology(vid); // 虚拟屏丢失后重建时，已记下的原模式沿用
         mirrored = YES;
+        fadeInAfter(0.4);
         if (onDisplayEvent) {
             onDisplayEvent(NO);
         }
@@ -362,15 +437,56 @@ BOOL displayOn(int w, int h) {
     return YES;
 }
 
+// 把虚拟屏切到设定的那档。档位里没有返回 NO
+static BOOL switchToWanted(CGDirectDisplayID vid) {
+    if (vdModeOK(vid)) {
+        return YES;
+    }
+    BOOL ok = NO;
+    CFArrayRef a = allModes(vid);
+    for (CFIndex i = 0; a && i < CFArrayGetCount(a); i++) {
+        CGDisplayModeRef m = (CGDisplayModeRef)CFArrayGetValueAtIndex(a, i);
+        if (isWanted(m)) {
+            CGDisplayConfigRef c;
+            if (CGBeginDisplayConfiguration(&c) == kCGErrorSuccess) {
+                CGConfigureDisplayWithDisplayMode(c, vid, m, NULL);
+                ok = CGCompleteDisplayConfiguration(c, kCGConfigureForSession) == kCGErrorSuccess;
+            }
+            break;
+        }
+    }
+    if (a) {
+        CFRelease(a);
+    }
+    return ok;
+}
+
 void displayResize(int w, int h) {
     curW = w;
     curH = h;
-    if (vd) {
-        CGVirtualDisplaySettings *s = settingsFor(w, h);
-        if (s) {
-            [vd applySettings:s];
-        }
+    if (!vd) {
+        return;
     }
+    CGDirectDisplayID vid = vd.displayID;
+    if (switchToWanted(vid)) {
+        return;
+    }
+    // 档位里没有（调过画面高度，比例变了）：按新比例重新定义一组。当前这档排第一个，虚拟屏先不动，稍后再切过去
+    CGDisplayModeRef cur = CGDisplayCopyDisplayMode(vid);
+    int cw = cur ? (int)CGDisplayModeGetWidth(cur) : 0, ch = cur ? (int)CGDisplayModeGetHeight(cur) : 0;
+    if (cur) {
+        CGDisplayModeRelease(cur);
+    }
+    CGVirtualDisplaySettings *s = settingsFor(w, h, cw, ch);
+    if (!s || ![vd applySettings:s]) {
+        return;
+    }
+    unsigned g = gen;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+        if (vd && g == gen && vd.displayID == vid) {
+            switchToWanted(vid);
+        }
+    });
 }
 
 // 解除镜像并销毁虚拟屏
@@ -425,6 +541,7 @@ static void scheduleFinishOff(double delay) {
                                                   return;
                                               }
                                               restorePhysMode();
+                                              fadeInAfter(0.4);
                                               closing = NO;
                                               NSArray *w = [offWaiters copy];
                                               [offWaiters removeAllObjects];
@@ -459,6 +576,7 @@ void displayOff(void (^done)(void)) {
     if (closing) {
         return;
     }
+    fadeOut();
     dropVirtual();
     closing = YES;
     scheduleFinishOff(1.5);
@@ -488,6 +606,10 @@ void displayAbandon(void) {
     if (!vd && !closing) {
         restorePhysMode();
     }
+}
+
+BOOL displayIsPreview(void) {
+    return preview;
 }
 
 BOOL displayIsOn(void) {

@@ -3,41 +3,45 @@
 
 // 图标都按 1024 的画布来画，再整体缩放到目标尺寸；坐标原点在左下角
 
-// 鼠标指针：tip 是尖端位置，k 是缩放（原型高 20 个单位、宽 12 个单位）
-static NSBezierPath *cursorPath(NSPoint tip, CGFloat k) {
-    CGFloat pts[][2] = {{0, 0}, {0, 17}, {4, 13.2}, {6.8, 19.6}, {9.4, 18.5}, {6.7, 12.2}, {12, 12.2}};
-    NSBezierPath *p = [NSBezierPath bezierPath];
-    for (int i = 0; i < 7; i++) {
-        NSPoint q = NSMakePoint(tip.x + pts[i][0] * k, tip.y - pts[i][1] * k);
-        i ? [p lineToPoint:q] : [p moveToPoint:q];
-    }
-    [p closePath];
-    p.lineJoinStyle = NSLineJoinStyleRound;
-    p.lineWidth = k * 1.1;
-    return p;
-}
-
-// 图案：主题色底板上一块白色竖屏，一个小指针一半压在竖屏右下方
+// 图案：白色底板中间一道紫色折线，表示连接，和菜单栏图标同形
 static void drawSymbol(void) {
     NSRect base = NSMakeRect(100, 100, 824, 824);
-    NSColor *ink = RGB(0x5E5CE6, 1);
-    [RR(base, 184) addClip];
-    [[[NSGradient alloc] initWithStartingColor:RGB(0x6E6BF4, 1) endingColor:RGB(0x5350E0, 1)] drawInRect:base
-                                                                                                   angle:-90];
+    NSBezierPath *plate = RR(base, 184);
 
-    NSRect ph = NSMakeRect(352, 232, 320, 560);
-    NSBezierPath *phone = RR(ph, 76);
+    // 白底在浅色 Dock 上容易糊成一片：加一层轻投影和一圈细描边
+    NSShadow *sh = [NSShadow new];
+    sh.shadowColor = RGB(0x000000, 0.18);
+    sh.shadowOffset = NSMakeSize(0, -10);
+    sh.shadowBlurRadius = 28;
+    [NSGraphicsContext saveGraphicsState];
+    [sh set];
     [NSColor.whiteColor setFill];
-    [phone fill];
+    [plate fill];
+    [NSGraphicsContext restoreGraphicsState];
 
-    // 指针像系统光标一样：主题色填充、白色描边，压在竖屏和底板上都看得清
-    CGFloat k = 10;
-    NSBezierPath *cur = cursorPath(NSMakePoint(NSMaxX(ph) - 4.5 * k, NSMinY(ph) + 300), k);
-    cur.lineWidth = k * 2.2;
-    [NSColor.whiteColor setStroke];
-    [cur stroke];
-    [ink setFill];
-    [cur fill];
+    [NSGraphicsContext saveGraphicsState];
+    [plate addClip];
+    [[[NSGradient alloc] initWithStartingColor:RGB(0xFFFFFF, 1) endingColor:RGB(0xEEEEF3, 1)] drawInRect:base
+                                                                                                   angle:-90];
+    [NSGraphicsContext restoreGraphicsState];
+    NSBezierPath *edge = RR(NSInsetRect(base, 1.5, 1.5), 182.5);
+    edge.lineWidth = 3;
+    [RGB(0x000000, 0.08) setStroke];
+    [edge stroke];
+
+    // 折线和菜单栏图标同一形状：18 格里 (4.5,7.5) → (8,11) → (10,7) → (13.5,10.5)，放大到底板里
+    CGFloat k = 824 / 18.0 * 0.95, o = 512 - 9 * k;
+    CGFloat pts[][2] = {{4.5, 7.5}, {8, 11}, {10, 7}, {13.5, 10.5}};
+    NSBezierPath *line = [NSBezierPath bezierPath];
+    for (int i = 0; i < 4; i++) {
+        NSPoint q = NSMakePoint(o + pts[i][0] * k, o + pts[i][1] * k);
+        i ? [line lineToPoint:q] : [line moveToPoint:q];
+    }
+    line.lineWidth = 1.8 * k;
+    line.lineCapStyle = NSLineCapStyleRound;
+    line.lineJoinStyle = NSLineJoinStyleRound;
+    [RGB(0x5E5CE6, 1) setStroke];
+    [line stroke];
 }
 
 static void drawIcon(CGFloat S) {
