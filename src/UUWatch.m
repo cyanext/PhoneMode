@@ -14,9 +14,14 @@ static BOOL overlayShown(void) {
     return NO;
 }
 
+static BOOL connected;
+
+BOOL uuWatchConnected(void) {
+    return connected;
+}
+
 void uuWatchStart(void (^changed)(BOOL connected)) {
     static NSTimer *timer;
-    static BOOL connected;
     static int gone;
     [timer invalidate];
     void (^cb)(BOOL) = [changed copy];

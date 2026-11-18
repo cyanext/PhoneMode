@@ -1,6 +1,15 @@
 #import "DisplayControl.h"
 #import "CGVirtualDisplay.h"
 #import "PhoneModels.h"
+#import "UUWatch.h"
+
+// 显示模式的 IOKit 标志（IOGraphicsTypes.h），这里只用到两个，免得为它引入 IOKit
+#ifndef kDisplayModeDefaultFlag
+#define kDisplayModeDefaultFlag 0x00000004 // 系统给这块屏的默认模式
+#endif
+#ifndef kDisplayModeNativeFlag
+#define kDisplayModeNativeFlag 0x02000000 // 像素尺寸等于面板原生分辨率
+#endif
 
 static CGVirtualDisplay *vd;              // 当前虚拟屏；nil 表示没开
 static NSMutableDictionary *origModes;    // 显示器编号 -> 镜像前的原模式（CGDisplayModeRef），关闭时恢复
@@ -16,6 +25,11 @@ static void (^onDisplayEvent)(BOOL lost); // 通知界面刷新；lost 表示虚
 static int curW, curH;                    // 虚拟屏应有的尺寸，修复分辨率时用
 // 镜像物理屏时把它们的原模式记进设置，正常恢复后清掉；启动时发现还在，说明上次被强杀或崩溃
 #define RESTORE_KEY @"restore"
+// 各物理屏的「正常模式」：显示器标识（厂商-型号-序列号）-> 模式。远程画面没开、UU 没连着、稳定一段时间后才记，
+// 关闭远程画面时按它恢复。不能只用开启那一刻的模式：跟随 UU 时，UU 连上就可能先把物理屏切到低分辨率，
+// 等我们发现 UU 连上再开启，拍到的已经是被 UU 改过的模式，关闭时又「恢复」成它，还会被永久存进系统
+#define BASELINE_KEY @"baseline"
+#define BASELINE_SETTLE 8 // 显示器配置变化后稳定这么多秒才记正常模式
 // 预览模式：只看界面，不碰显示器。开关只改这两个状态
 static BOOL preview, previewOn;
 
@@ -46,39 +60,213 @@ static BOOL displayOnline(CGDirectDisplayID d) {
     return NO;
 }
 
-// 把显示器切到指定的模式（点数宽高、像素宽、刷新率都对上才算）
-static BOOL applyMode(CGDirectDisplayID d, size_t W, size_t H, size_t PW, double R) {
-    BOOL ok = NO;
+// 在显示器的模式里找指定的那个：点数宽高、像素宽都要对上，像素高给了（大于 0）也要对上，
+// 刷新率取最接近的。原来是取第一个刷新率差不到 1Hz 的，47.95Hz 会先撞上排在前面的 48Hz；
+// 刷新率差多少都接受（取最接近），原来差 1Hz 以上就放弃恢复。
+// 返回的模式要 CGDisplayModeRelease；找不到返回 NULL
+static CGDisplayModeRef findMode(CGDirectDisplayID d, size_t W, size_t H, size_t PW, size_t PH, double R) {
     CFArrayRef a = allModes(d);
     if (!a) {
-        return NO;
+        return NULL;
     }
+    CGDisplayModeRef best = NULL;
+    double bestDiff = 0;
     for (CFIndex i = 0; i < CFArrayGetCount(a); i++) {
         CGDisplayModeRef m = (CGDisplayModeRef)CFArrayGetValueAtIndex(a, i);
-        if (CGDisplayModeGetWidth(m) == W && CGDisplayModeGetHeight(m) == H && CGDisplayModeGetPixelWidth(m) == PW &&
-            fabs(CGDisplayModeGetRefreshRate(m) - R) < 1) {
-            CGDisplayConfigRef c;
-            CGBeginDisplayConfiguration(&c);
-            CGConfigureDisplayWithDisplayMode(c, d, m, NULL);
-            ok = CGCompleteDisplayConfiguration(c, kCGConfigurePermanently) == kCGErrorSuccess;
+        // 带上低分辨率重复项后，列表里会有参数相同但不能用作桌面的模式，跳过
+        if (CGDisplayModeGetWidth(m) != W || CGDisplayModeGetHeight(m) != H || CGDisplayModeGetPixelWidth(m) != PW ||
+            (PH && CGDisplayModeGetPixelHeight(m) != PH) || !CGDisplayModeIsUsableForDesktopGUI(m)) {
+            continue;
+        }
+        double diff = fabs(CGDisplayModeGetRefreshRate(m) - R);
+        if (!best || diff < bestDiff) {
+            best = m;
+            bestDiff = diff;
+        }
+    }
+    if (best) {
+        CGDisplayModeRetain(best);
+    }
+    CFRelease(a);
+    return best;
+}
+
+// 把显示器切到指定的模式，永久生效（系统会按这组显示器记住它）
+static BOOL applyMode(CGDirectDisplayID d, size_t W, size_t H, size_t PW, size_t PH, double R) {
+    CGDisplayModeRef m = findMode(d, W, H, PW, PH, R);
+    if (!m) {
+        return NO;
+    }
+    BOOL ok = NO;
+    CGDisplayConfigRef c;
+    if (CGBeginDisplayConfiguration(&c) == kCGErrorSuccess) {
+        CGConfigureDisplayWithDisplayMode(c, d, m, NULL);
+        ok = CGCompleteDisplayConfiguration(c, kCGConfigurePermanently) == kCGErrorSuccess;
+    }
+    CGDisplayModeRelease(m);
+    return ok;
+}
+
+static NSDictionary *modeInfo(CGDisplayModeRef m) {
+    return @{
+        @"w" : @(CGDisplayModeGetWidth(m)),
+        @"h" : @(CGDisplayModeGetHeight(m)),
+        @"pw" : @(CGDisplayModeGetPixelWidth(m)),
+        @"ph" : @(CGDisplayModeGetPixelHeight(m)),
+        @"hz" : @(CGDisplayModeGetRefreshRate(m))
+    };
+}
+
+// 系统给这块屏的默认模式（「系统设置 > 显示器」里标着「默认」的那个）。返回的模式要 CGDisplayModeRelease
+static CGDisplayModeRef copyDefaultMode(CGDirectDisplayID d) {
+    CFArrayRef a = allModes(d);
+    if (!a) {
+        return NULL;
+    }
+    CGDisplayModeRef found = NULL;
+    for (CFIndex i = 0; i < CFArrayGetCount(a); i++) {
+        CGDisplayModeRef m = (CGDisplayModeRef)CFArrayGetValueAtIndex(a, i);
+        if (CGDisplayModeGetIOFlags(m) & kDisplayModeDefaultFlag) {
+            found = CGDisplayModeRetain(m);
             break;
         }
     }
     CFRelease(a);
-    return ok;
+    return found;
+}
+
+// 是不是「低分辨率缩放模式」：1 倍像素、又不是面板原生分辨率，而这块屏的默认模式是 HiDPI。
+// 系统设置里默认不列这种模式，基本只有远程软件会切过去（比如 Retina 内置屏的 2048×1280 1x），
+// 不能把它当成用户的正常模式记下或恢复。普通 1080p 屏没有 HiDPI 默认模式，它的 1x 模式不算
+static BOOL isLowResScaled(CGDirectDisplayID d, CGDisplayModeRef m) {
+    if (!m || CGDisplayModeGetPixelWidth(m) != CGDisplayModeGetWidth(m) ||
+        (CGDisplayModeGetIOFlags(m) & kDisplayModeNativeFlag)) {
+        return NO;
+    }
+    CGDisplayModeRef def = copyDefaultMode(d);
+    BOOL hidpiDefault = def && CGDisplayModeGetPixelWidth(def) > CGDisplayModeGetWidth(def);
+    if (def) {
+        CGDisplayModeRelease(def);
+    }
+    return hidpiDefault;
+}
+
+// 显示器标识：厂商-型号-序列号。显示器编号重启、插拔后可能变，正常模式按这个记
+static NSString *displayKey(CGDirectDisplayID d) {
+    return [NSString stringWithFormat:@"%x-%x-%x", CGDisplayVendorNumber(d), CGDisplayModelNumber(d),
+                                      CGDisplaySerialNumber(d)];
+}
+
+static NSDictionary *loadBaseline(CGDirectDisplayID d) {
+    id all = [[NSUserDefaults standardUserDefaults] objectForKey:BASELINE_KEY];
+    id e = [all isKindOfClass:[NSDictionary class]] ? all[displayKey(d)] : nil;
+    return [e isKindOfClass:[NSDictionary class]] ? e : nil;
+}
+
+static void saveBaseline(CGDirectDisplayID d, CGDisplayModeRef m) {
+    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
+    id old = [ud objectForKey:BASELINE_KEY];
+    NSMutableDictionary *all = [old isKindOfClass:[NSDictionary class]] ? [old mutableCopy] : [NSMutableDictionary new];
+    NSDictionary *info = modeInfo(m);
+    NSString *k = displayKey(d);
+    if ([all[k] isEqual:info]) {
+        return;
+    }
+    all[k] = info;
+    [ud setObject:all forKey:BASELINE_KEY];
+}
+
+// 选关闭时要恢复的模式（纯判断，不读当前状态，方便单独测）。trustCur：当前模式可信，即 UU 没连着、也不在镜像中
+// 1. 当前模式可信又正常：就用当前模式（手动开启时，当前就是用户想要的）
+// 2. 否则用记下的正常模式
+// 3. 没记过：当前模式正常就用当前的，否则用系统默认模式
+// 返回的模式要 CGDisplayModeRelease
+static CGDisplayModeRef pickRestoreMode(CGDirectDisplayID d, CGDisplayModeRef cur, BOOL trustCur,
+                                        NSDictionary *base) {
+    BOOL curOK = cur && !isLowResScaled(d, cur);
+    if (curOK && trustCur) {
+        return CGDisplayModeRetain(cur);
+    }
+    if (base) {
+        CGDisplayModeRef m = findMode(d, [base[@"w"] intValue], [base[@"h"] intValue], [base[@"pw"] intValue],
+                                      [base[@"ph"] intValue], [base[@"hz"] doubleValue]);
+        if (m) {
+            return m;
+        }
+    }
+    if (curOK) {
+        return CGDisplayModeRetain(cur);
+    }
+    CGDisplayModeRef def = copyDefaultMode(d);
+    if (def) {
+        return def;
+    }
+    return cur ? CGDisplayModeRetain(cur) : NULL;
+}
+
+// 按当前状态选关闭时要恢复的模式，返回的对象由 ARC 管
+static id chooseRestoreMode(CGDirectDisplayID d) {
+    BOOL trustCur = !uuWatchConnected() && !CGDisplayIsInMirrorSet(d);
+    CGDisplayModeRef cur = CGDisplayCopyDisplayMode(d);
+    CGDisplayModeRef m = pickRestoreMode(d, cur, trustCur, loadBaseline(d));
+    if (cur) {
+        CGDisplayModeRelease(cur);
+    }
+    if (m && trustCur && !vd && !isLowResScaled(d, m)) {
+        saveBaseline(d, m); // 手动开启时当前模式就是正常模式，顺手记下
+    }
+    return m ? CFBridgingRelease(m) : nil;
+}
+
+// 把物理屏当前的模式记成正常模式。远程画面开着、正在关闭、UU 连着、镜像中、模式不正常时都不记
+static void recordBaseline(void) {
+    if (preview || vd || closing || uuWatchConnected()) {
+        return;
+    }
+    uint32_t n = 0;
+    CGDirectDisplayID ids[16];
+    if (CGGetOnlineDisplayList(16, ids, &n) != kCGErrorSuccess) {
+        return;
+    }
+    for (uint32_t i = 0; i < n; i++) {
+        CGDirectDisplayID d = ids[i];
+        if (CGDisplayIsInMirrorSet(d) || CGDisplayVendorNumber(d) == 0xEEEE) {
+            continue; // 镜像中的模式不是用户设的；0xEEEE 是我们自己的虚拟屏
+        }
+        CGDisplayModeRef m = CGDisplayCopyDisplayMode(d);
+        if (m && !isLowResScaled(d, m)) {
+            saveBaseline(d, m);
+        }
+        if (m) {
+            CGDisplayModeRelease(m);
+        }
+    }
+}
+
+// 显示器配置变化后等它稳定 BASELINE_SETTLE 秒再记正常模式；期间又变了就重新计时。
+// UU 连上时先改分辨率、稍后才盖提示框，等这一段就能等到提示框出来，不会把 UU 改的模式记进去
+static void scheduleBaseline(void) {
+    static NSTimer *timer;
+    if (preview) {
+        return;
+    }
+    [timer invalidate];
+    timer = [NSTimer timerWithTimeInterval:BASELINE_SETTLE
+                                   repeats:NO
+                                     block:^(NSTimer *t) {
+                                         timer = nil;
+                                         recordBaseline();
+                                     }];
+    [[NSRunLoop mainRunLoop] addTimer:timer forMode:NSRunLoopCommonModes];
 }
 
 static void writeRestoreRecord(void) {
     NSMutableArray *a = [NSMutableArray array];
     for (NSNumber *k in origModes) {
         CGDisplayModeRef m = (__bridge CGDisplayModeRef)origModes[k];
-        [a addObject:@{
-            @"display" : k,
-            @"w" : @(CGDisplayModeGetWidth(m)),
-            @"h" : @(CGDisplayModeGetHeight(m)),
-            @"pw" : @(CGDisplayModeGetPixelWidth(m)),
-            @"hz" : @(CGDisplayModeGetRefreshRate(m))
-        }];
+        NSMutableDictionary *e = [modeInfo(m) mutableCopy];
+        e[@"display"] = k;
+        [a addObject:e];
     }
     NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
     [ud setObject:a forKey:RESTORE_KEY];
@@ -119,7 +307,8 @@ BOOL displayRecoverFromCrash(void) {
         if (cur) {
             CGDisplayModeRelease(cur);
         }
-        if (!same && applyMode(d, W, H, PW, [e[@"hz"] doubleValue])) {
+        // 旧版记录没有 ph，读出来是 0，findMode 就不比像素高
+        if (!same && applyMode(d, W, H, PW, [e[@"ph"] intValue], [e[@"hz"] doubleValue])) {
             did = YES;
         }
     }
@@ -243,7 +432,8 @@ static BOOL applyTopology(CGDirectDisplayID vid) {
         if (origModes[@(p[i])]) {
             continue;
         }
-        id m = preModes[@(p[i])] ?: CFBridgingRelease(CGDisplayCopyDisplayMode(p[i]));
+        // 开着时才插上的屏没有 preModes，按同样的规则选（镜像中的当前模式不可信，会用记下的正常模式）
+        id m = preModes[@(p[i])] ?: chooseRestoreMode(p[i]);
         if (m) {
             origModes[@(p[i])] = m;
             added = YES;
@@ -328,7 +518,24 @@ static void reconfigured(CGDirectDisplayID d, CGDisplayChangeSummaryFlags f, voi
     }
     dispatch_async(dispatch_get_main_queue(), ^{
         displayScheduleVerify();
+        scheduleBaseline();
     });
+}
+
+static void ensureReconfigCallback(void) {
+    static BOOL registered;
+    if (!registered) {
+        registered = YES;
+        CGDisplayRegisterReconfigurationCallback(reconfigured, NULL);
+    }
+}
+
+void displayStartTracking(void) {
+    if (preview) {
+        return;
+    }
+    ensureReconfigCallback();
+    scheduleBaseline(); // 启动后稳定一会儿先记一次
 }
 
 // 屏幕先淡出到黑，建虚拟屏、设镜像、恢复原模式这几次显示器重新配置都藏在黑屏里，再淡入，看起来只切一次。
@@ -380,15 +587,16 @@ BOOL displayOn(int w, int h) {
     }
     curW = w;
     curH = h;
-    // 建虚拟屏之前拍下各显示器的模式。已经记过原模式的（虚拟屏丢了重建时）沿用旧的，这里拍到的是镜像中的模式，用不上
+    // 建虚拟屏之前定下各显示器关闭时要恢复的模式。已经记过原模式的（虚拟屏丢了重建时）沿用旧的，这里选的用不上。
+    // 不直接拍当前模式：跟随 UU 开启时，当前模式可能已经被 UU 改成了低分辨率，见 chooseRestoreMode
     preModes = [NSMutableDictionary dictionary];
     uint32_t n = 0;
     CGDirectDisplayID ids[16];
     if (CGGetOnlineDisplayList(16, ids, &n) == kCGErrorSuccess) {
         for (uint32_t i = 0; i < n; i++) {
-            CGDisplayModeRef m = CGDisplayCopyDisplayMode(ids[i]);
+            id m = chooseRestoreMode(ids[i]);
             if (m) {
-                preModes[@(ids[i])] = CFBridgingRelease(m);
+                preModes[@(ids[i])] = m;
             }
         }
     }
@@ -413,11 +621,7 @@ BOOL displayOn(int w, int h) {
         fadeInAfter(0);
         return NO;
     }
-    static BOOL registered;
-    if (!registered) {
-        registered = YES;
-        CGDisplayRegisterReconfigurationCallback(reconfigured, NULL);
-    }
+    ensureReconfigCallback();
     mirrored = NO;
     createdAt = CFAbsoluteTimeGetCurrent();
     unsigned g = ++gen;
@@ -515,7 +719,7 @@ static void restorePhysMode(void) {
     for (NSNumber *k in origModes) {
         CGDisplayModeRef m = (__bridge CGDisplayModeRef)origModes[k];
         applyMode(k.unsignedIntValue, CGDisplayModeGetWidth(m), CGDisplayModeGetHeight(m),
-                  CGDisplayModeGetPixelWidth(m), CGDisplayModeGetRefreshRate(m));
+                  CGDisplayModeGetPixelWidth(m), CGDisplayModeGetPixelHeight(m), CGDisplayModeGetRefreshRate(m));
     }
     origModes = nil;
     clearRestoreRecord();

@@ -4,3 +4,5 @@
 
 // 开始定时检查。连接状态变化时回调 connected
 void uuWatchStart(void (^changed)(BOOL connected));
+// 当前是否连着（断开后有几秒的确认期，期间仍算连着）
+BOOL uuWatchConnected(void);

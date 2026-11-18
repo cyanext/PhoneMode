@@ -706,6 +706,7 @@ static NSImage *statusImage(BOOL on) {
                                                              object:nil];
     // 打开时不自动开远程画面。上次被强杀或崩溃时物理屏没恢复、让出来的工具也没打开：这里补上
     displayRecoverFromCrash();
+    displayStartTracking();
     otherAppsRelaunch();
     uuWatchStart(^(BOOL connected) {
         [me uuChanged:connected];

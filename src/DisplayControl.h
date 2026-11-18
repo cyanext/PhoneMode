@@ -15,6 +15,8 @@ void displayAbandon(void);
 BOOL displayRecoverFromCrash(void);
 // 稍等片刻后确认虚拟屏还在不在（唤醒、显示器配置变化时调用）
 void displayScheduleVerify(void);
+// 启动时调用一次：监听显示器配置变化，记下各物理屏的「正常模式」，关闭远程画面时按它恢复
+void displayStartTracking(void);
 
 // 预览模式（--preview）：界面照常，开关只是假装，不建虚拟屏、不改任何显示器。要在其他调用之前设
 void displaySetPreview(void);
