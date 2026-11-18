@@ -2,6 +2,7 @@
 #import "DisplayControl.h"
 #import "OtherApps.h"
 #import "PhoneModels.h"
+#import "Rows.h"
 #import "Theme.h"
 #import "UUWatch.h"
 
@@ -24,6 +25,8 @@
 @property(strong) NSSlider *slider;
 @property(strong) NSSegmentedControl *heightSeg;
 @property(strong) id<NSObject> activity;
+@property(strong) NSArray<PresetRow *> *presetRows;
+@property(strong) ClickRow *addRow;
 @end
 
 @implementation AppDelegate {
@@ -171,17 +174,6 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     [v addSubview:c];
 }
 
-// 盖在一行上的透明按钮：点一下执行 action
-- (NSButton *)rowButtonAt:(CGFloat)y height:(CGFloat)h action:(SEL)a tag:(NSInteger)tag in:(NSView *)v {
-    NSButton *b = [NSButton buttonWithTitle:@"" target:self action:a];
-    b.bordered = NO;
-    b.transparent = YES;
-    b.tag = tag;
-    b.frame = NSMakeRect(0, y, PANEL_W, h);
-    [v addSubview:b];
-    return b;
-}
-
 - (void)buildPanel {
     FlipView *r = [[FlipView alloc] initWithFrame:NSMakeRect(0, 0, PANEL_W, 100)];
     self.root = r;
@@ -270,10 +262,11 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     self.popover = [NSPopover new];
     self.popover.contentViewController = vc;
     self.popover.behavior = NSPopoverBehaviorTransient;
+    self.popover.delegate = self;
     [self buildPresets];
 }
 
-// 重排预设区，面板高度跟着变。tag：100 起是各条预设的勾，99 是新建预设
+// 重排预设区，面板高度跟着变。预设增删、覆盖时调；改名只改那一行，不重排
 - (void)buildPresets {
     FlipView *b = self.presetBox;
     for (NSView *v in [b.subviews copy]) {
@@ -284,46 +277,52 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     [b addSubview:h];
     CGFloat y = 30;
     NSArray *ps = self.presets;
+    NSMutableArray *rows = [NSMutableArray array];
     for (NSInteger i = 0; i < (NSInteger)ps.count; i++) {
-        NSImageView *ck = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:@"checkmark"
-                                                                    accessibilityDescription:nil]];
-        ck.contentTintColor = NSColor.controlAccentColor;
-        ck.frame = NSMakeRect(PAD + 6, y + 8, 16, 16);
-        ck.tag = 100 + i;
-        [b addSubview:ck];
-        NSTextField *n = label(ps[i][@"name"], 13, NSFontWeightRegular, NSColor.labelColor);
-        n.lineBreakMode = NSLineBreakByTruncatingTail;
-        n.frame = NSMakeRect(TITLE_X, y + 7, PANEL_W - TITLE_X - PAD - 90, 18);
-        [b addSubview:n];
-        NSTextField *sz = numLabel(90);
-        sz.stringValue = [NSString stringWithFormat:@"%@ × %@", ps[i][@"w"], ps[i][@"h"]];
-        sz.frame = NSMakeRect(PANEL_W - PAD - 90, y + 8, 90, 17);
-        [b addSubview:sz];
-        NSButton *rb = [self rowButtonAt:y height:PRESET_H action:@selector(pickPreset:) tag:i in:b];
-        NSMenu *menu = [NSMenu new];
-        for (NSString *title in @[ @"用当前尺寸覆盖", @"删除" ]) {
-            NSMenuItem *it = [menu addItemWithTitle:title
-                                             action:[title isEqualToString:@"删除"] ? @selector(deletePreset:)
-                                                                                     : @selector(overwritePreset:)
-                                      keyEquivalent:@""];
-            it.target = self;
-            it.tag = i;
+        PresetRow *r = [[PresetRow alloc] initWithFrame:NSMakeRect(0, y, PANEL_W, PRESET_H)
+                                                   name:ps[i][@"name"]
+                                                 detail:[NSString stringWithFormat:@"%@ × %@", ps[i][@"w"], ps[i][@"h"]]];
+        __weak AppDelegate *me = self;
+        r.onPick = ^{
+            [me applyPreset:i];
+        };
+        r.onRename = ^(NSString *name) {
+            [me savePreset:i name:name];
+        };
+        NSMenu *m = [NSMenu new];
+        for (NSArray *it in @[ @[ @"重命名", @"renamePreset:" ], @[ @"用当前尺寸覆盖", @"overwritePreset:" ],
+                               @[ @"删除", @"deletePreset:" ] ]) {
+            NSMenuItem *mi = [m addItemWithTitle:it[0] action:NSSelectorFromString(it[1]) keyEquivalent:@""];
+            mi.target = self;
+            mi.tag = i;
         }
-        rb.menu = menu;
-        rb.toolTip = @"点一下切换，右键可覆盖或删除";
+        r.menu = m;
+        r.toolTip = @"点一下切换，双击改名，右键可覆盖或删除";
+        [b addSubview:r];
+        [rows addObject:r];
         y += PRESET_H;
     }
-    // 新建预设：自动起名，当前尺寸已经存过时变灰
+    self.presetRows = rows;
+
+    // 新建预设：当前尺寸已经存过时变淡、点不了
     y -= 4;
-    rowTitle(b, y, @"plus", YES, @"新建预设").tag = 99;
-    [self rowButtonAt:y height:ROW_H action:@selector(addPreset:) tag:99 in:b];
+    self.addRow = [[ClickRow alloc] initWithFrame:NSMakeRect(0, y, PANEL_W, ROW_H)];
+    rowTitle(self.addRow, 0, @"plus", YES, @"新建预设");
+    __weak AppDelegate *me = self;
+    self.addRow.onClick = ^{
+        [me addPreset];
+    };
+    [b addSubview:self.addRow];
     y += ROW_H + 2;
     separator(b, y);
+    ClickRow *quit = [[ClickRow alloc] initWithFrame:NSMakeRect(0, y + 2, PANEL_W, 36)];
     NSTextField *q = label(@"退出", 13, NSFontWeightRegular, NSColor.labelColor);
-    [q setFrameOrigin:NSMakePoint(PAD, y + 10)];
-    [b addSubview:q];
-    NSButton *qb = [self rowButtonAt:y height:38 action:@selector(terminate:) tag:0 in:b];
-    qb.target = NSApp;
+    [q setFrameOrigin:NSMakePoint(PAD, floor((36 - q.frame.size.height) / 2))];
+    [quit addSubview:q];
+    quit.onClick = ^{
+        [NSApp terminate:nil];
+    };
+    [b addSubview:quit];
     y += 42;
 
     b.frame = NSMakeRect(0, b.frame.origin.y, PANEL_W, y);
@@ -370,15 +369,10 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     self.heightLabel.stringValue = [NSString stringWithFormat:@"%d", _h];
 
     NSInteger match = [self matchingPreset];
-    for (NSView *v in self.presetBox.subviews) {
-        if (v.tag >= 100) {
-            v.hidden = v.tag - 100 != match;
-        } else if (v.tag == 99 && [v isKindOfClass:NSButton.class]) {
-            ((NSButton *)v).enabled = match < 0;
-        } else if (v.tag == 99) {
-            ((NSTextField *)v).textColor = match < 0 ? NSColor.labelColor : NSColor.tertiaryLabelColor;
-        }
+    for (NSUInteger i = 0; i < self.presetRows.count; i++) {
+        self.presetRows[i].checked = (NSInteger)i == match;
     }
+    self.addRow.enabled = match < 0;
 }
 
 #pragma mark 机型菜单
@@ -511,12 +505,12 @@ static CFAbsoluteTime lastApply;
     [self useW:kModels[_model].w h:kModels[_model].h];
 }
 
-- (void)pickPreset:(NSButton *)b {
+- (void)applyPreset:(NSInteger)i {
     NSArray *ps = self.presets;
-    if (b.tag >= (NSInteger)ps.count) {
+    if (i >= (NSInteger)ps.count) {
         return;
     }
-    NSDictionary *d = ps[b.tag];
+    NSDictionary *d = ps[i];
     int mi = modelIndexByName(d[@"model"]);
     if (mi >= 0) {
         _model = mi;
@@ -524,8 +518,8 @@ static CFAbsoluteTime lastApply;
     [self useW:[d[@"w"] intValue] h:[d[@"h"] intValue]];
 }
 
-// 新建预设不用输入：名字是机型加尺寸
-- (void)addPreset:(id)s {
+// 新建预设：名字先填机型加尺寸，随即进入改名，直接打字替换，回车确认
+- (void)addPreset {
     if ([self matchingPreset] >= 0) {
         return;
     }
@@ -537,6 +531,30 @@ static CFAbsoluteTime lastApply;
         @"h" : @(_h)
     }];
     [self setPresets:ps];
+    [self.presetRows.lastObject beginRename];
+}
+
+// 改名：只存设置，那一行已经自己显示新名字
+- (void)savePreset:(NSInteger)i name:(NSString *)name {
+    NSMutableArray *ps = [self.presets mutableCopy];
+    if (i >= (NSInteger)ps.count) {
+        return;
+    }
+    NSMutableDictionary *d = [ps[i] mutableCopy];
+    d[@"name"] = name;
+    ps[i] = d;
+    [self.ud setObject:ps forKey:@"presets"];
+}
+
+- (void)renamePreset:(NSMenuItem *)it {
+    if (it.tag < (NSInteger)self.presetRows.count) {
+        [self.presetRows[it.tag] beginRename];
+    }
+}
+
+// 面板收起前结束正在进行的改名，名字才存得下来
+- (void)popoverWillClose:(NSNotification *)n {
+    [self.root.window makeFirstResponder:nil];
 }
 
 - (void)overwritePreset:(NSMenuItem *)it {
@@ -707,6 +725,7 @@ static NSImage *statusImage(BOOL on) {
     // 打开时不自动开远程画面。上次被强杀或崩溃时物理屏没恢复、让出来的工具也没打开：这里补上
     displayRecoverFromCrash();
     otherAppsRelaunch();
+    endEditingOnOutsideClick();
     uuWatchStart(^(BOOL connected) {
         [me uuChanged:connected];
     });

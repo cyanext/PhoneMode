@@ -22,7 +22,7 @@ static BOOL mainDisplayIs(size_t w, size_t h) {
 }
 
 static BOOL hasRestoreRecord(void) {
-    return [[NSUserDefaults standardUserDefaults] objectForKey:@"restore"] != nil;
+    return [[NSUserDefaults standardUserDefaults] boolForKey:@"restorePending"];
 }
 
 void selfTestSchedule(AppDelegate *app) {
@@ -41,7 +41,7 @@ void selfTestSchedule(AppDelegate *app) {
         w2 = w < WMAX ? w + STEP : w - STEP;
         check(displayIsOn() && displayIsMirrored(), @"点开启后虚拟屏已开启并设好镜像");
         check(mainDisplayIs(w, h), [NSString stringWithFormat:@"主屏是 %d×%d", w, h]);
-        check(hasRestoreRecord(), @"恢复记录已写入");
+        check(hasRestoreRecord(), @"恢复标记已写入");
         [app setW:w2 h:h];
     });
     after(8.2, ^{
@@ -55,7 +55,7 @@ void selfTestSchedule(AppDelegate *app) {
     after(12.4, ^{
         check(!displayIsOn() && !displayIsClosing(), @"关闭完成");
         check(mainDisplayIs(w0, h0), [NSString stringWithFormat:@"主屏回到 %zu×%zu", w0, h0]);
-        check(!hasRestoreRecord(), @"恢复记录已清除");
+        check(!hasRestoreRecord(), @"恢复标记已清除");
     });
     after(13.2, ^{
         [app setRemoteOn:YES];
