@@ -24,7 +24,7 @@ CFLAGS  := -fobjc-arc -O2 -arch arm64 -arch x86_64 -mmacosx-version-min=$(MIN_MA
            -Wall -Wextra -Werror -Wno-unused-parameter
 LDFLAGS := -framework Cocoa -framework CoreGraphics
 
-.PHONY: build icon app dmg install selftest format clean
+.PHONY: build icon app dmg zip install selftest format clean
 
 # 编出 arm64 和 x86_64 通用二进制
 build: $(BIN)
@@ -63,6 +63,12 @@ dmg: app
 	cp "Resources/使用说明.txt" $(DMG_STAGE)/
 	rm -f "$(DMG)"
 	hdiutil create -volname "$(APP_NAME)" -srcfolder $(DMG_STAGE) -ov -format UDZO "$(DMG)"
+
+# 发布用的安装包：dist/PhoneMode-<版本>.zip，传到 GitHub Release，程序自动更新时下载它
+zip: app
+	@mkdir -p $(DIST)
+	rm -f "$(DIST)/PhoneMode-$(VERSION).zip"
+	/usr/bin/ditto -c -k --keepParent "$(APP)" "$(DIST)/PhoneMode-$(VERSION).zip"
 
 # 装到 ~/Applications 并重新打开；正在运行的旧版本先正常退出，让它把显示器恢复好
 install: app

@@ -5,6 +5,7 @@
 #import "Rows.h"
 #import "Theme.h"
 #import "UUWatch.h"
+#import "Updater.h"
 
 // 坐标原点在左上角的容器，从上往下排版方便
 @interface FlipView : NSView
@@ -27,7 +28,7 @@
 @property(strong) id<NSObject> activity;
 @property(strong) id outsideClick; // 面板打开期间监听别的程序里的鼠标按下，用来收起面板
 @property(strong) NSArray<PresetRow *> *presetRows;
-@property(strong) ClickRow *addRow, *quitRow;
+@property(strong) ClickRow *addRow, *quitRow, *updateRow;
 @end
 
 @implementation AppDelegate {
@@ -319,6 +320,29 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     [b addSubview:self.addRow];
     y += ROW_H + 2;
     separator(b, y);
+    // 检查更新：右边写当前版本
+    ClickRow *upd = [[ClickRow alloc] initWithFrame:NSMakeRect(0, y + 2, PANEL_W, 36)];
+    NSImageView *ui = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:@"arrow.triangle.2.circlepath"
+                                                                accessibilityDescription:nil]];
+    ui.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:12 weight:NSFontWeightRegular];
+    ui.contentTintColor = NSColor.labelColor;
+    ui.frame = NSMakeRect(PAD, floor((36 - 18) / 2), 18, 18);
+    [upd addSubview:ui];
+    NSTextField *ul = label(@"检查更新", 13, NSFontWeightRegular, NSColor.labelColor);
+    [ul setFrameOrigin:NSMakePoint(PAD + 26, floor((36 - ul.frame.size.height) / 2))];
+    [upd addSubview:ul];
+    NSString *ver = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"";
+    NSTextField *uv = label(ver, 13, NSFontWeightRegular, NSColor.secondaryLabelColor);
+    [uv setFrameOrigin:NSMakePoint(PANEL_W - PAD - uv.frame.size.width, floor((36 - uv.frame.size.height) / 2))];
+    [upd addSubview:uv];
+    upd.onClick = ^{
+        [me.popover performClose:nil];
+        [[Updater shared] checkNow];
+    };
+    [b addSubview:upd];
+    self.updateRow = upd;
+    y += 36;
+
     // 退出：和菜单里的退出一样，左边方框叉图标，右边写快捷键 ⌘Q
     ClickRow *quit = [[ClickRow alloc] initWithFrame:NSMakeRect(0, y + 2, PANEL_W, 36)];
     NSImageView *qi = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:@"xmark.square"
@@ -582,6 +606,7 @@ static CFAbsoluteTime lastApply;
         [r clearHover];
     }
     [self.addRow clearHover];
+    [self.updateRow clearHover];
     [self.quitRow clearHover];
     [self.root.window makeFirstResponder:nil];
 }
@@ -623,6 +648,7 @@ static CFAbsoluteTime lastApply;
         displayOff(^{
             otherAppsRelaunch();
             [self refresh];
+            [[Updater shared] installPendingIfReady]; // 远程画面开着时下好的更新，关掉后装
         });
     }
     [self refresh];
@@ -679,6 +705,7 @@ static CFAbsoluteTime lastApply;
     // 虚拟屏放弃重建，或者排列一直被改掉而自动关闭了：远程画面已经关掉，把让出来的工具打开
     if (!displayIsOn() && !displayIsClosing() && !otherAppsQuitting() && !_terminating) {
         otherAppsRelaunch();
+        [[Updater shared] installPendingIfReady];
     }
     [self refresh];
 }
@@ -776,6 +803,13 @@ static NSImage *statusImage(BOOL on) {
                                                            selector:@selector(didWake:)
                                                                name:NSWorkspaceDidWakeNotification
                                                              object:nil];
+    // 检查更新：远程画面开着、正在关闭、等别的工具退出时都先不装
+    [Updater shared].canInstallNow = ^BOOL {
+        return !displayIsOn() && !displayIsClosing() && !otherAppsQuitting() && !displayIsPreview();
+    };
+    if (!displayIsPreview()) {
+        [[Updater shared] startWithRepo:@"cyanext/PhoneMode"];
+    }
     // 打开时不自动开远程画面。上次被强杀或崩溃时物理屏没恢复、让出来的工具也没打开：这里补上
     displayRecoverFromCrash();
     otherAppsRelaunch();
