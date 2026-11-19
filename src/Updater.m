@@ -24,6 +24,11 @@ static NSString *currentVersion(void) {
     return [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"0";
 }
 
+// 给人看的版本号统一写成 v1.2 这样
+static NSString *shown(NSString *v) {
+    return [@"v" stringByAppendingString:v];
+}
+
 static NSString *appName(void) {
     return [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleName"] ?: @"本程序";
 }
@@ -148,7 +153,7 @@ static void alert(NSString *title, NSString *text) {
     NSString *ver = [tag stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"vV"]];
     if (compareVersions(ver, currentVersion()) != NSOrderedDescending) {
         if (manual) {
-            alert(@"已经是最新版本", [NSString stringWithFormat:@"%@ %@", appName(), currentVersion()]);
+            alert(@"已经是最新版本", [NSString stringWithFormat:@"%@ %@", appName(), shown(currentVersion())]);
         }
         return;
     }
@@ -175,8 +180,8 @@ static void alert(NSString *title, NSString *text) {
         notes = [[notes substringToIndex:600] stringByAppendingString:@"…"];
     }
     _busy = YES; // 提示框开着时不再重复检查、重复弹
-    [self show:[NSString stringWithFormat:@"%@ 有新版本 %@", appName(), ver]
-          text:[NSString stringWithFormat:@"当前是 %@。\n\n%@", currentVersion(), notes]
+    [self show:[NSString stringWithFormat:@"%@ 有新版本 %@", appName(), shown(ver)]
+          text:[NSString stringWithFormat:@"当前是 %@。\n\n%@", shown(currentVersion()), notes]
        buttons:@[ @"更新", @"稍后", @"跳过这个版本" ]
           done:^(NSInteger i) {
               self->_busy = NO;

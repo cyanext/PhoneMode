@@ -332,7 +332,7 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     [ul setFrameOrigin:NSMakePoint(PAD + 26, floor((36 - ul.frame.size.height) / 2))];
     [upd addSubview:ul];
     NSString *ver = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"";
-    NSTextField *uv = label(ver, 13, NSFontWeightRegular, NSColor.secondaryLabelColor);
+    NSTextField *uv = label([@"v" stringByAppendingString:ver], 13, NSFontWeightRegular, NSColor.secondaryLabelColor);
     [uv setFrameOrigin:NSMakePoint(PANEL_W - PAD - uv.frame.size.width, floor((36 - uv.frame.size.height) / 2))];
     [upd addSubview:uv];
     upd.onClick = ^{
