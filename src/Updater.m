@@ -5,8 +5,10 @@
 
 @implementation Updater {
     NSString *_repo;
-    NSString *_pendingApp; // 下载解压好、等着装的新程序包
-    BOOL _busy;            // 正在检查或下载，不重复开始
+    NSString *_pendingApp;  // 下载解压好、等着装的新程序包
+    BOOL _busy;             // 正在检查或下载，不重复开始
+    NSMutableArray *_open;  // 正在显示的提示框，显示期间要留着
+    NSMutableDictionary *_handlers; // 提示框窗口 -> 点了第几个按钮之后做什么
 }
 
 + (instancetype)shared {
@@ -39,12 +41,53 @@ static NSComparisonResult compareVersions(NSString *a, NSString *b) {
     return NSOrderedSame;
 }
 
-static void alert(NSString *title, NSString *text) {
+// 提示框不用 runModal：菜单栏程序常常没法被系统切到前台，模态框弹出来却看不见，程序又卡在那里等，
+// 别的事全停了。改成浮在最上层、不卡程序的窗口，点按钮后回调 done（参数是第几个按钮，从 0 开始）
+- (void)show:(NSString *)title text:(NSString *)text buttons:(NSArray<NSString *> *)buttons done:(void (^)(NSInteger))done {
+    if (!_open) {
+        _open = [NSMutableArray array];
+        _handlers = [NSMutableDictionary dictionary];
+    }
     NSAlert *a = [NSAlert new];
     a.messageText = title;
     a.informativeText = text ?: @"";
+    for (NSString *b in buttons.count ? buttons : @[ @"好" ]) {
+        [a addButtonWithTitle:b];
+    }
+    for (NSUInteger i = 0; i < a.buttons.count; i++) {
+        a.buttons[i].tag = (NSInteger)i;
+        a.buttons[i].target = self;
+        a.buttons[i].action = @selector(pressed:);
+    }
+    [a layout];
+    NSWindow *w = a.window;
+    w.level = NSFloatingWindowLevel;
+    w.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
+    [w center];
+    [_open addObject:a];
+    _handlers[@((NSUInteger)w)] = done ? (id)[done copy] : (id) ^ (NSInteger i){};
     [NSApp activateIgnoringOtherApps:YES];
-    [a runModal];
+    [w makeKeyAndOrderFront:nil];
+    [w orderFrontRegardless];
+}
+
+- (void)pressed:(NSButton *)b {
+    NSWindow *w = b.window;
+    void (^done)(NSInteger) = _handlers[@((NSUInteger)w)];
+    [_handlers removeObjectForKey:@((NSUInteger)w)];
+    [w orderOut:nil];
+    for (NSAlert *a in [_open copy]) {
+        if (a.window == w) {
+            [_open removeObject:a];
+        }
+    }
+    if (done) {
+        done(b.tag);
+    }
+}
+
+static void alert(NSString *title, NSString *text) {
+    [[Updater shared] show:title text:text buttons:@[] done:nil];
 }
 
 - (void)startWithRepo:(NSString *)repo {
@@ -131,19 +174,18 @@ static void alert(NSString *title, NSString *text) {
     if (notes.length > 600) {
         notes = [[notes substringToIndex:600] stringByAppendingString:@"…"];
     }
-    NSAlert *a = [NSAlert new];
-    a.messageText = [NSString stringWithFormat:@"%@ 有新版本 %@", appName(), ver];
-    a.informativeText = [NSString stringWithFormat:@"当前是 %@。\n\n%@", currentVersion(), notes];
-    [a addButtonWithTitle:@"更新"];
-    [a addButtonWithTitle:@"稍后"];
-    [a addButtonWithTitle:@"跳过这个版本"];
-    [NSApp activateIgnoringOtherApps:YES];
-    NSModalResponse r = [a runModal];
-    if (r == NSAlertThirdButtonReturn) {
-        [ud setObject:ver forKey:SKIP_KEY];
-    } else if (r == NSAlertFirstButtonReturn) {
-        [self download:zip];
-    }
+    _busy = YES; // 提示框开着时不再重复检查、重复弹
+    [self show:[NSString stringWithFormat:@"%@ 有新版本 %@", appName(), ver]
+          text:[NSString stringWithFormat:@"当前是 %@。\n\n%@", currentVersion(), notes]
+       buttons:@[ @"更新", @"稍后", @"跳过这个版本" ]
+          done:^(NSInteger i) {
+              self->_busy = NO;
+              if (i == 2) {
+                  [ud setObject:ver forKey:SKIP_KEY];
+              } else if (i == 0) {
+                  [self download:zip];
+              }
+          }];
 }
 
 // 下载、解压，核对解出来的程序和本程序是同一个（包标识相同），再装
