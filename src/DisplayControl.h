@@ -1,10 +1,11 @@
 // 显示器控制：建一块 Retina 虚拟屏设为主屏，让物理屏镜像它；关闭时解除镜像，各屏切回用户配置里的分辨率
+#import "PhoneModels.h"
 #import <Cocoa/Cocoa.h>
 
-// 开启。成功或已经开着返回 YES；正在关闭、私有类取不到、创建失败返回 NO
-BOOL displayOn(int w, int h);
-// 改虚拟屏尺寸，没开时什么也不做
-void displayResize(int w, int h);
+// 开启。r 是档位范围（手机、电脑不同）。成功或已经开着返回 YES；正在关闭、私有类取不到、创建失败返回 NO
+BOOL displayOn(int w, int h, SizeRange r);
+// 改虚拟屏尺寸和档位范围，没开时什么也不做。始终用同一块虚拟屏，远程软件不会断
+void displayResize(int w, int h, SizeRange r);
 // 关闭：解除镜像，等虚拟屏下线后恢复各物理屏，等待期间不占主线程；全部做完后调用 done
 void displayOff(void (^done)(void));
 // 兜底的同步关闭：退出流程没等到异步恢复完成时用

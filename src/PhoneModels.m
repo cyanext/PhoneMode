@@ -39,6 +39,9 @@ const Model kModels[]={
   {"HUAWEI",   "HUAWEI Pura X View",      82.6,139.6, 7.7,5.7, CUT_HOLE,    980, 820, NULL},
   {"Android",  "6.7 英寸（20:9）",           69.8,155.2, 7.7,5.7, CUT_HOLE,    830,1010, NULL},
   {"Android",  "6.3 英寸（20:9）",           65.7,145.9, 7.7,5.7, CUT_HOLE,    800, 920, NULL},
+  // 电脑：宽高取这台电脑默认的显示分辨率，远程软件全屏时画面铺满。MacBook 全屏时刘海那一条不用，高度减掉约 32
+  {"电脑",      "MacBook 13 英寸",           0,0,0,0, CUT_NOTCH, 1470, 920, NULL},
+  {"电脑",      "27 英寸显示器",              0,0,0,0, CUT_HOLE,  2560,1440, NULL},
 };
 // clang-format on
 const int kModelCount = (int)(sizeof kModels / sizeof kModels[0]);
@@ -51,6 +54,20 @@ static NSString *currentName(NSString *n) {
         @"约 6.3 英寸" : @"6.3 英寸（20:9）",
     };
     return old[n] ?: n;
+}
+
+BOOL modelIsDesktop(int m) {
+    if (m < 0 || m >= NMODEL) {
+        return NO;
+    }
+    return strcmp(kModels[m].group, "电脑") == 0;
+}
+
+SizeRange sizeRange(int m) {
+    if (m < 0 || m >= NMODEL) {
+        return (SizeRange){WMIN, WMAX, HMIN, HMAX};
+    }
+    return modelIsDesktop(m) ? (SizeRange){1200, 2560, 700, 1600} : (SizeRange){800, 1400, 500, 1600};
 }
 
 int modelIndexByName(NSString *n) {

@@ -1,7 +1,54 @@
 #import "Rows.h"
 
+// 悬停效果，ClickRow 和 PresetRow 共用：和菜单选中一样铺一块强调色圆角底，行里的文字、图标变白，
+// 有底色的圆形图标底改成半透明白。原来的颜色记在 restore 里，移出时还原
+static void drawHoverBackground(NSView *row) {
+    [NSColor.controlAccentColor setFill];
+    [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(row.bounds, 6, 2) xRadius:8 yRadius:8] fill];
+}
+
+static void tintForHover(NSView *v, NSView *skip, NSMutableArray *restore) {
+    for (NSView *c in v.subviews) {
+        if (c == skip) {
+            continue;
+        }
+        if ([c isKindOfClass:NSTextField.class]) {
+            NSTextField *t = (NSTextField *)c;
+            NSColor *old = t.textColor;
+            t.textColor = NSColor.whiteColor;
+            [restore addObject:^{
+                t.textColor = old;
+            }];
+        } else if ([c isKindOfClass:NSImageView.class]) {
+            NSImageView *iv = (NSImageView *)c;
+            NSColor *old = iv.contentTintColor;
+            iv.contentTintColor = NSColor.whiteColor;
+            [restore addObject:^{
+                iv.contentTintColor = old;
+            }];
+        } else if ([c isKindOfClass:NSBox.class] && ((NSBox *)c).boxType == NSBoxCustom) {
+            NSBox *b = (NSBox *)c;
+            NSColor *old = b.fillColor;
+            b.fillColor = [NSColor colorWithWhite:1 alpha:0.25];
+            [restore addObject:^{
+                b.fillColor = old;
+            }];
+        }
+        tintForHover(c, skip, restore);
+    }
+}
+
+static void addHoverTracking(NSView *v) {
+    [v addTrackingArea:[[NSTrackingArea alloc]
+                           initWithRect:NSZeroRect
+                                options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect
+                                  owner:v
+                               userInfo:nil]];
+}
+
 @implementation ClickRow {
-    BOOL _pressed;
+    BOOL _pressed, _hover;
+    NSMutableArray *_restore;
 }
 
 // 面板在后台时第一下点击也直接生效，不用先点一下激活
@@ -12,8 +59,39 @@
 - (instancetype)initWithFrame:(NSRect)f {
     if ((self = [super initWithFrame:f])) {
         _enabled = YES;
+        _restore = [NSMutableArray array];
+        addHoverTracking(self);
     }
     return self;
+}
+
+- (void)setHover:(BOOL)on {
+    on = on && _enabled;
+    if (on == _hover) {
+        return;
+    }
+    _hover = on;
+    if (on) {
+        tintForHover(self, nil, _restore);
+    } else {
+        for (void (^b)(void) in _restore) {
+            b();
+        }
+        [_restore removeAllObjects];
+    }
+    self.needsDisplay = YES;
+}
+
+- (void)mouseEntered:(NSEvent *)e {
+    [self setHover:YES];
+}
+
+- (void)mouseExited:(NSEvent *)e {
+    [self setHover:NO];
+}
+
+- (void)clearHover {
+    [self setHover:NO];
 }
 
 - (BOOL)isFlipped {
@@ -26,12 +104,17 @@
 }
 
 - (void)setEnabled:(BOOL)e {
+    if (!e) {
+        [self setHover:NO];
+    }
     _enabled = e;
     self.alphaValue = e ? 1 : 0.35;
 }
 
 - (void)drawRect:(NSRect)r {
-    if (_pressed) {
+    if (_hover) {
+        drawHoverBackground(self);
+    } else if (_pressed) {
         [[NSColor.labelColor colorWithAlphaComponent:0.06] setFill];
         [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(self.bounds, 6, 2) xRadius:8 yRadius:8] fill];
     }
@@ -63,7 +146,8 @@
     NSBox *_field; // 改名时垫在名字后面的输入框底和边框
     NSString *_saved;   // 开始改名时的名字，放弃时恢复
     NSRect _labelFrame; // 不编辑时名字的位置
-    BOOL _editing, _cancel;
+    BOOL _editing, _cancel, _hover;
+    NSMutableArray *_restore;
 }
 
 - (instancetype)initWithFrame:(NSRect)f name:(NSString *)name detail:(NSString *)detail {
@@ -107,7 +191,45 @@
     _name.frame = _labelFrame;
     [self addSubview:_name];
     [self showAsLabel];
+    _restore = [NSMutableArray array];
+    addHoverTracking(self);
     return self;
+}
+
+// 悬停和 ClickRow 一样；改名时不变色，免得输入框里的字也变白
+- (void)setHover:(BOOL)on {
+    on = on && !_editing;
+    if (on == _hover) {
+        return;
+    }
+    _hover = on;
+    if (on) {
+        tintForHover(self, _field, _restore);
+    } else {
+        for (void (^b)(void) in _restore) {
+            b();
+        }
+        [_restore removeAllObjects];
+    }
+    self.needsDisplay = YES;
+}
+
+- (void)mouseEntered:(NSEvent *)e {
+    [self setHover:YES];
+}
+
+- (void)mouseExited:(NSEvent *)e {
+    [self setHover:NO];
+}
+
+- (void)clearHover {
+    [self setHover:NO];
+}
+
+- (void)drawRect:(NSRect)r {
+    if (_hover) {
+        drawHoverBackground(self);
+    }
 }
 
 - (BOOL)isFlipped {
@@ -139,6 +261,7 @@
     if (_editing) {
         return;
     }
+    [self setHover:NO];
     _editing = YES;
     _cancel = NO;
     _saved = _name.stringValue;

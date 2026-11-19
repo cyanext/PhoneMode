@@ -18,12 +18,21 @@ extern const int kModelCount;
 #define NMODEL kModelCount
 #define DEFAULT_MODEL 3
 
-// 虚拟屏宽高的允许范围和步进（点）
+// 虚拟屏宽高的总范围和步进（点）。手机、电脑各自的范围见 sizeRange
 #define WMIN 800
-#define WMAX 1400
+#define WMAX 2560
 #define HMIN 500
 #define HMAX 1600
 #define STEP 10
+
+typedef struct {
+    int wmin, wmax, hmin, hmax;
+} SizeRange;
+
+// 电脑模式：用 MacBook 或外接显示器远程控制，画面按那块屏的比例来
+BOOL modelIsDesktop(int m);
+// 这个设备能调到的宽高范围；m 小于 0 时返回总范围
+SizeRange sizeRange(int m);
 
 // 按名称找型号，找不到返回 -1
 int modelIndexByName(NSString *n);

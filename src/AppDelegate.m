@@ -25,8 +25,9 @@
 @property(strong) NSSlider *slider;
 @property(strong) NSSegmentedControl *heightSeg;
 @property(strong) id<NSObject> activity;
+@property(strong) id outsideClick; // 面板打开期间监听别的程序里的鼠标按下，用来收起面板
 @property(strong) NSArray<PresetRow *> *presetRows;
-@property(strong) ClickRow *addRow;
+@property(strong) ClickRow *addRow, *quitRow;
 @end
 
 @implementation AppDelegate {
@@ -72,11 +73,13 @@
         if (![w respondsToSelector:@selector(intValue)] || ![h respondsToSelector:@selector(intValue)]) {
             continue;
         }
+        model = [model isKindOfClass:NSString.class] ? model : @"";
+        SizeRange r = sizeRange(modelIndexByName(model));
         [out addObject:@{
             @"name" : name,
-            @"model" : [model isKindOfClass:NSString.class] ? model : @"",
-            @"w" : @(MAX(WMIN, MIN(WMAX, [w intValue]))),
-            @"h" : @(MAX(HMIN, MIN(HMAX, [h intValue])))
+            @"model" : model,
+            @"w" : @(MAX(r.wmin, MIN(r.wmax, [w intValue]))),
+            @"h" : @(MAX(r.hmin, MIN(r.hmax, [h intValue])))
         }];
     }
     return out;
@@ -94,8 +97,9 @@
     }
     _w = (int)[self.ud integerForKey:@"w"] ?: kModels[_model].w;
     _h = (int)[self.ud integerForKey:@"h"] ?: kModels[_model].h;
-    _w = MAX(WMIN, MIN(WMAX, _w));
-    _h = MAX(HMIN, MIN(HMAX, _h));
+    SizeRange r = sizeRange(_model);
+    _w = MAX(r.wmin, MIN(r.wmax, _w));
+    _h = MAX(r.hmin, MIN(r.hmax, _h));
     _ratio = (double)_h / _w;
 }
 
@@ -207,9 +211,9 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     self.followUU.toolTip = @"网易 UU 远程连上时自动开启远程画面，断开时自动关闭";
     placeRight(r, y, self.followUU, 0);
 
-    // 机型：按品牌、系列分层的菜单
+    // 设备：手机按品牌、系列分层，电脑排在后面
     y += ROW_H;
-    rowTitle(r, y, @"iphone", NO, @"机型");
+    rowTitle(r, y, @"laptopcomputer.and.iphone", NO, @"设备");
     self.modelBtn = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 180, 24) pullsDown:YES];
     self.modelBtn.bordered = NO;
     self.modelBtn.alignment = NSTextAlignmentRight;
@@ -246,7 +250,7 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     [self.heightSeg setWidth:30 forSegment:0];
     [self.heightSeg setWidth:30 forSegment:1];
     [self.heightSeg sizeToFit];
-    self.heightSeg.toolTip = @"只改高度。画面底部被输入法挡住时调矮";
+    self.heightSeg.toolTip = @"只改高度。手机上画面底部被输入法挡住、电脑上远程窗口没全屏时调矮";
     placeRight(r, y, self.heightSeg, -2);
     self.heightLabel = numLabel(60);
     placeRight(r, y, self.heightLabel, self.heightSeg.frame.size.width + 6);
@@ -315,14 +319,25 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     [b addSubview:self.addRow];
     y += ROW_H + 2;
     separator(b, y);
+    // 退出：和菜单里的退出一样，左边方框叉图标，右边写快捷键 ⌘Q
     ClickRow *quit = [[ClickRow alloc] initWithFrame:NSMakeRect(0, y + 2, PANEL_W, 36)];
+    NSImageView *qi = [NSImageView imageViewWithImage:[NSImage imageWithSystemSymbolName:@"xmark.square"
+                                                                accessibilityDescription:nil]];
+    qi.symbolConfiguration = [NSImageSymbolConfiguration configurationWithPointSize:13 weight:NSFontWeightRegular];
+    qi.contentTintColor = NSColor.labelColor;
+    qi.frame = NSMakeRect(PAD, floor((36 - 18) / 2), 18, 18);
+    [quit addSubview:qi];
     NSTextField *q = label(@"退出", 13, NSFontWeightRegular, NSColor.labelColor);
-    [q setFrameOrigin:NSMakePoint(PAD, floor((36 - q.frame.size.height) / 2))];
+    [q setFrameOrigin:NSMakePoint(PAD + 26, floor((36 - q.frame.size.height) / 2))];
     [quit addSubview:q];
+    NSTextField *k = label(@"⌘Q", 13, NSFontWeightRegular, NSColor.secondaryLabelColor);
+    [k setFrameOrigin:NSMakePoint(PANEL_W - PAD - k.frame.size.width, floor((36 - k.frame.size.height) / 2))];
+    [quit addSubview:k];
     quit.onClick = ^{
         [NSApp terminate:nil];
     };
     [b addSubview:quit];
+    self.quitRow = quit;
     y += 42;
 
     b.frame = NSMakeRect(0, b.frame.origin.y, PANEL_W, y);
@@ -335,8 +350,9 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
 
 // 显示大小能拖到的宽度：比例不变时高度也要在允许范围内
 - (void)sliderRange:(double *)lo hi:(double *)hi {
-    *lo = MAX(WMIN, ceil(HMIN / _ratio));
-    *hi = MIN(WMAX, floor(HMAX / _ratio));
+    SizeRange r = sizeRange(_model);
+    *lo = MAX(r.wmin, ceil(r.hmin / _ratio));
+    *hi = MIN(r.wmax, floor(r.hmax / _ratio));
 }
 
 - (void)refresh {
@@ -400,11 +416,17 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     it.attributedTitle = as;
 }
 
-// 点开机型菜单时现搭：第一项是按钮标题，然后每个品牌一个子菜单，有系列的（iPhone 按代）再分一层
+// 点开设备菜单时现搭：第一项是按钮标题，然后每个品牌一个子菜单，有系列的（iPhone 按代）再分一层。手机和电脑之间加分隔线
 - (void)menuNeedsUpdate:(NSMenu *)menu {
     [menu removeAllItems];
     [menu addItemWithTitle:@(kModels[_model].name) action:nil keyEquivalent:@""];
+    BOOL sawDesktop = NO;
     for (NSString *g in groupNames()) {
+        int first = firstModelOfGroup((int)[groupNames() indexOfObject:g]);
+        if (modelIsDesktop(first) && !sawDesktop) {
+            sawDesktop = YES;
+            [menu addItem:[NSMenuItem separatorItem]];
+        }
         NSMenu *gm = [NSMenu new];
         NSMenu *sub = nil;
         for (int i = 0; i < NMODEL; i++) {
@@ -443,8 +465,9 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
 
 // 只改数值和界面，不碰虚拟屏（拖滑块的过程中用）
 - (void)showW:(int)w h:(int)h {
-    _w = MAX(WMIN, MIN(WMAX, w));
-    _h = MAX(HMIN, MIN(HMAX, h));
+    SizeRange r = sizeRange(_model);
+    _w = MAX(r.wmin, MIN(r.wmax, w));
+    _h = MAX(r.hmin, MIN(r.hmax, h));
     [self refresh];
 }
 
@@ -463,13 +486,15 @@ static CFAbsoluteTime lastApply;
     if (displayIsOn() && !displayIsClosing()) {
         lastApply = CFAbsoluteTimeGetCurrent();
     }
-    displayResize(_w, _h);
+    displayResize(_w, _h, sizeRange(_model));
     [self save];
 }
 
-// 换一整套尺寸（机型、预设）：比例跟着换
-- (void)useW:(int)w h:(int)h {
-    _ratio = (double)MAX(HMIN, MIN(HMAX, h)) / MAX(WMIN, MIN(WMAX, w));
+// 换一整套尺寸（设备、预设）：比例跟着换。手机和电脑之间切换也只是换档位，虚拟屏不重建
+- (void)useModel:(int)m w:(int)w h:(int)h {
+    _model = m;
+    SizeRange r = sizeRange(m);
+    _ratio = (double)MAX(r.hmin, MIN(r.hmax, h)) / MAX(r.wmin, MIN(r.wmax, w));
     [self setW:w h:h];
 }
 
@@ -492,7 +517,8 @@ static CFAbsoluteTime lastApply;
 // 画面高度：点 − 或 + 每次 ±10，宽度不动
 - (void)stepped:(NSSegmentedControl *)s {
     int d = s.selectedSegment == 0 ? -1 : 1;
-    int h = MAX(HMIN, MIN(HMAX, _h + d * STEP));
+    SizeRange r = sizeRange(_model);
+    int h = MAX(r.hmin, MIN(r.hmax, _h + d * STEP));
     _ratio = (double)h / _w;
     [self setW:_w h:h];
 }
@@ -501,8 +527,8 @@ static CFAbsoluteTime lastApply;
     if (it.tag < 0 || it.tag >= NMODEL) {
         return;
     }
-    _model = (int)it.tag;
-    [self useW:kModels[_model].w h:kModels[_model].h];
+    int m = (int)it.tag;
+    [self useModel:m w:kModels[m].w h:kModels[m].h];
 }
 
 - (void)applyPreset:(NSInteger)i {
@@ -512,10 +538,7 @@ static CFAbsoluteTime lastApply;
     }
     NSDictionary *d = ps[i];
     int mi = modelIndexByName(d[@"model"]);
-    if (mi >= 0) {
-        _model = mi;
-    }
-    [self useW:[d[@"w"] intValue] h:[d[@"h"] intValue]];
+    [self useModel:mi >= 0 ? mi : _model w:[d[@"w"] intValue] h:[d[@"h"] intValue]];
 }
 
 // 新建预设：名字先填机型加尺寸，随即进入改名，直接打字替换，回车确认
@@ -554,6 +577,12 @@ static CFAbsoluteTime lastApply;
 
 // 面板收起前结束正在进行的改名，名字才存得下来
 - (void)popoverWillClose:(NSNotification *)n {
+    // 鼠标停在某一行上就收起面板时，系统不会再发移出事件，下次打开还是高亮的：这里统一清掉
+    for (PresetRow *r in self.presetRows) {
+        [r clearHover];
+    }
+    [self.addRow clearHover];
+    [self.quitRow clearHover];
     [self.root.window makeFirstResponder:nil];
 }
 
@@ -606,7 +635,7 @@ static CFAbsoluteTime lastApply;
         [NSApp replyToApplicationShouldTerminate:YES];
         return;
     }
-    if (!displayOn(_w, _h)) {
+    if (!displayOn(_w, _h, sizeRange(_model))) {
         otherAppsRelaunch();
         NSAlert *a = [NSAlert new];
         a.messageText = @"虚拟屏创建失败";
@@ -643,7 +672,7 @@ static CFAbsoluteTime lastApply;
             _rebuildT0 = now;
             _rebuilds = 0;
         }
-        if (++_rebuilds > 3 || !displayOn(_w, _h)) {
+        if (++_rebuilds > 3 || !displayOn(_w, _h, sizeRange(_model))) {
             displayAbandon();
         }
     }
@@ -669,20 +698,22 @@ static NSImage *statusImage(BOOL on) {
                                  flipped:NO
                           drawingHandler:^BOOL(NSRect r) {
                               NSBezierPath *p = [NSBezierPath bezierPath];
-                              [p moveToPoint:NSMakePoint(4.5, 7.5)];
-                              [p lineToPoint:NSMakePoint(8, 11)];
-                              [p lineToPoint:NSMakePoint(10, 7)];
-                              [p lineToPoint:NSMakePoint(13.5, 10.5)];
+                              // 整体比画布中线低 0.75：和 PicBox 菜单栏图标的视觉重心对齐
+                              [p moveToPoint:NSMakePoint(4.5, 7)];
+                              [p lineToPoint:NSMakePoint(8, 10.5)];
+                              [p lineToPoint:NSMakePoint(10, 6.5)];
+                              [p lineToPoint:NSMakePoint(13.5, 10)];
                               p.lineWidth = 1.8;
                               p.lineCapStyle = NSLineCapStyleRound;
                               p.lineJoinStyle = NSLineJoinStyleRound;
                               [NSColor.blackColor set];
                               if (on) {
-                                  [RR(NSMakeRect(1, 2, 16, 14), 4) fill];
+                                  [RR(NSMakeRect(1, 1.25, 16, 14), 4) fill];
                                   [NSGraphicsContext.currentContext setCompositingOperation:NSCompositingOperationClear];
                               } else {
-                                  NSBezierPath *box = RR(NSMakeRect(1.5, 2.5, 15, 13), 3.5);
-                                  box.lineWidth = 1;
+                                  // 方框线宽 1.5，和 PicBox 菜单栏图标的线条轻重对齐
+                                  NSBezierPath *box = RR(NSMakeRect(1.5, 1.75, 15, 13), 3.5);
+                                  box.lineWidth = 1.5;
                                   [box stroke];
                               }
                               [p stroke];
@@ -702,9 +733,32 @@ static NSImage *statusImage(BOOL on) {
     [self.popover showRelativeToRect:self.statusItem.button.bounds
                               ofView:self.statusItem.button
                        preferredEdge:NSRectEdgeMinY];
+    // 面板设的是点外面自动收起，但系统只在本程序处于激活状态时才管；新版 macOS 不一定让菜单栏程序激活，
+    // 点桌面、别的窗口、别的菜单栏图标时面板就不收。自己监听：别的程序里一有鼠标按下就收起
+    if (!self.outsideClick) {
+        __weak AppDelegate *me = self;
+        self.outsideClick = [NSEvent
+            addGlobalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown | NSEventMaskOtherMouseDown
+                                          handler:^(NSEvent *e) {
+                                              [me.popover performClose:nil];
+                                          }];
+    }
+}
+
+- (void)popoverDidClose:(NSNotification *)n {
+    if (self.outsideClick) {
+        [NSEvent removeMonitor:self.outsideClick];
+        self.outsideClick = nil;
+    }
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification *)n {
+    // 隐藏的主菜单，只放一个退出：面板打开时按 ⌘Q 能退出（面板上的退出行写着 ⌘Q）
+    NSMenu *mainMenu = [NSMenu new];
+    NSMenu *appMenu = [NSMenu new];
+    [appMenu addItemWithTitle:@"退出" action:@selector(terminate:) keyEquivalent:@"q"];
+    [mainMenu addItemWithTitle:@"" action:nil keyEquivalent:@""].submenu = appMenu;
+    NSApp.mainMenu = mainMenu;
     [self load];
     self.statusItem = [NSStatusBar.systemStatusBar statusItemWithLength:NSSquareStatusItemLength];
     self.statusItem.button.toolTip = @"远程模式";

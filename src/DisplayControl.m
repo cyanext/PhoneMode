@@ -10,6 +10,7 @@ static CFAbsoluteTime createdAt;          // 最近一次建虚拟屏的时间
 static NSMutableArray *offWaiters;        // 等关闭完成的回调
 static void (^onDisplayEvent)(BOOL lost); // 通知界面刷新；lost 表示虚拟屏被系统回收了
 static int curW, curH;                    // 虚拟屏应有的尺寸，修复分辨率时用
+static SizeRange curRange;                // 档位的范围：手机和电脑不同
 // 物理屏怎么恢复（关闭时、崩溃后启动时）：
 // 不以开启那一刻的分辨率为准。跟随 UU 时，UU 一连上就先把屏临时降了分辨率，等远程模式开启再拍，拍到的已经是改过的。
 // 以用户自己的显示器配置为准：系统按「接了哪几块屏」分组，把每块屏用户选的分辨率存在当前用户、当前主机的偏好里
@@ -183,7 +184,7 @@ BOOL displayRecoverFromCrash(void) {
     return YES;
 }
 
-// 虚拟屏的一组档位：设定的那档，同比例下宽 WMIN–WMAX，同宽度下高 ±300，都每 STEP 一档。
+// 虚拟屏的一组档位：设定的那档，同比例下宽在 curRange 里，同宽度下高 ±300，都每 STEP 一档。
 // 拖显示大小、调画面高度只是在档位间切换，系统切得又快又稳；重新定义档位（applySettings）
 // 要把虚拟屏和镜像整套重建，开着镜像时一次改动大了会把整机卡住。
 // first 不为 0 时把这档排第一个：重新定义档位时让虚拟屏先停在当前这档不动，再切过去。
@@ -197,9 +198,12 @@ static CGVirtualDisplaySettings *settingsFor(int w, int h, int firstW, int first
     s.hiDPI = 1;
     NSMutableArray *modes = [NSMutableArray array];
     NSMutableSet *seen = [NSMutableSet set];
+    // 排第一个的当前档位可能在另一种设备的范围里（手机切电脑），只按总范围卡
     void (^add)(int, int) = ^(int x, int y) {
         NSString *k = [NSString stringWithFormat:@"%dx%d", x, y];
-        if (x < WMIN || x > WMAX || y < HMIN || y > HMAX || [seen containsObject:k]) {
+        BOOL keep = x == firstW && y == firstH;
+        SizeRange r = keep ? (SizeRange){WMIN, WMAX, HMIN, HMAX} : curRange;
+        if (x < r.wmin || x > r.wmax || y < r.hmin || y > r.hmax || [seen containsObject:k]) {
             return;
         }
         [seen addObject:k];
@@ -211,7 +215,7 @@ static CGVirtualDisplaySettings *settingsFor(int w, int h, int firstW, int first
     add(w, h);
     // 和界面上拖显示大小的算法一致：宽度与 w 对齐到 STEP，高度 = 宽度 × 比例四舍五入
     double r = (double)h / w;
-    for (int x = w - (w - WMIN) / STEP * STEP; x <= WMAX; x += STEP) {
+    for (int x = w - (w - curRange.wmin) / STEP * STEP; x <= curRange.wmax; x += STEP) {
         add(x, (int)lround(x * r));
     }
     for (int y = h - 300; y <= h + 300; y += STEP) {
@@ -401,7 +405,7 @@ static void fadeInAfter(double delay) {
     [[NSRunLoop mainRunLoop] addTimer:t forMode:NSRunLoopCommonModes];
 }
 
-BOOL displayOn(int w, int h) {
+BOOL displayOn(int w, int h, SizeRange r) {
     if (preview) {
         previewOn = YES;
         return YES;
@@ -412,6 +416,7 @@ BOOL displayOn(int w, int h) {
     if (closing) {
         return NO;
     }
+    curRange = r;
     // 私有类按名字取，系统哪天移除了就走「创建失败」，不至于启动不了
     Class D = NSClassFromString(@"CGVirtualDisplayDescriptor"), V = NSClassFromString(@"CGVirtualDisplay");
     CGVirtualDisplaySettings *st = settingsFor(w, h, 0, 0);
@@ -503,9 +508,10 @@ static BOOL switchToWanted(CGDirectDisplayID vid) {
     return ok;
 }
 
-void displayResize(int w, int h) {
+void displayResize(int w, int h, SizeRange r) {
     curW = w;
     curH = h;
+    curRange = r;
     if (!vd) {
         return;
     }
@@ -513,7 +519,8 @@ void displayResize(int w, int h) {
     if (switchToWanted(vid)) {
         return;
     }
-    // 档位里没有（调过画面高度，比例变了）：按新比例重新定义一组。当前这档排第一个，虚拟屏先不动，稍后再切过去
+    // 档位里没有（调过画面高度、换了设备，比例变了）：按新比例重新定义一组。
+    // 不销毁重建：远程软件截的是这块屏，换一块它会停在旧画面上。当前这档排第一个，虚拟屏先不动，稍后再切过去
     CGDisplayModeRef cur = CGDisplayCopyDisplayMode(vid);
     int cw = cur ? (int)CGDisplayModeGetWidth(cur) : 0, ch = cur ? (int)CGDisplayModeGetHeight(cur) : 0;
     if (cur) {
