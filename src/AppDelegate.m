@@ -1,3 +1,4 @@
+#import "Localize.h"
 #import "AppDelegate.h"
 #import "DisplayControl.h"
 #import "OtherApps.h"
@@ -184,7 +185,7 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     self.root = r;
 
     // 标题、状态和总开关
-    NSTextField *t = label(@"远程模式", 15, NSFontWeightSemibold, NSColor.labelColor);
+    NSTextField *t = label(L(@"远程模式"), 15, NSFontWeightSemibold, NSColor.labelColor);
     [t setFrameOrigin:NSMakePoint(PAD, 14)];
     [r addSubview:t];
     self.stateLabel = label(@"", 12, NSFontWeightRegular, NSColor.secondaryLabelColor);
@@ -201,7 +202,7 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
 
     // 跟随 UU 远程：UU 连上自动开，断开自动关
     CGFloat y = 72;
-    rowTitle(r, y, @"antenna.radiowaves.left.and.right", NO, @"跟随 UU 远程");
+    rowTitle(r, y, @"antenna.radiowaves.left.and.right", NO, L(@"跟随 UU 远程"));
     self.followUU = [NSSwitch new];
     self.followUU.controlSize = NSControlSizeSmall;
     [self.followUU sizeToFit];
@@ -209,12 +210,12 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
                                                                                                    : NSControlStateValueOn;
     self.followUU.target = self;
     self.followUU.action = @selector(followClicked:);
-    self.followUU.toolTip = @"网易 UU 远程连上时自动开启远程画面，断开时自动关闭";
+    self.followUU.toolTip = L(@"网易 UU 远程连上时自动开启远程画面，断开时自动关闭");
     placeRight(r, y, self.followUU, 0);
 
     // 设备：手机按品牌、系列分层，电脑排在后面
     y += ROW_H;
-    rowTitle(r, y, @"laptopcomputer.and.iphone", NO, @"设备");
+    rowTitle(r, y, @"laptopcomputer.and.iphone", NO, L(@"设备"));
     self.modelBtn = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 180, 24) pullsDown:YES];
     self.modelBtn.bordered = NO;
     self.modelBtn.alignment = NSTextAlignmentRight;
@@ -223,27 +224,27 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
 
     // 显示大小：标题行右侧是分辨率和相对机型推荐宽度的比例，下面一整条滑块，两端写方向
     y += ROW_H;
-    rowTitle(r, y, @"textformat.size", NO, @"显示大小");
+    rowTitle(r, y, @"textformat.size", NO, L(@"显示大小"));
     self.sizeLabel = numLabel(150);
     placeRight(r, y, self.sizeLabel, 0);
     self.slider = [NSSlider sliderWithValue:WMIN minValue:WMIN maxValue:WMAX target:self action:@selector(slid:)];
     self.slider.frame = NSMakeRect(PAD - 2, y + 40, PANEL_W - PAD * 2 + 4, 24);
     self.slider.numberOfTickMarks = 7;
     [r addSubview:self.slider];
-    NSTextField *l = label(@"更大文本", 11, NSFontWeightRegular, NSColor.secondaryLabelColor);
+    NSTextField *l = label(L(@"更大文本"), 11, NSFontWeightRegular, NSColor.secondaryLabelColor);
     [l setFrameOrigin:NSMakePoint(PAD, y + 66)];
     [r addSubview:l];
-    NSTextField *m = label(@"更多空间", 11, NSFontWeightRegular, NSColor.secondaryLabelColor);
+    NSTextField *m = label(L(@"更多空间"), 11, NSFontWeightRegular, NSColor.secondaryLabelColor);
     [m setFrameOrigin:NSMakePoint(PANEL_W - PAD - m.frame.size.width, y + 66)];
     [r addSubview:m];
 
     // 画面高度：数字加「− | +」，每点一下 ±10
     y += SIZE_H;
-    rowTitle(r, y, @"arrow.up.and.down", NO, @"画面高度");
+    rowTitle(r, y, @"arrow.up.and.down", NO, L(@"画面高度"));
     self.heightSeg = [NSSegmentedControl
         segmentedControlWithImages:@[
-            [NSImage imageWithSystemSymbolName:@"minus" accessibilityDescription:@"调矮"],
-            [NSImage imageWithSystemSymbolName:@"plus" accessibilityDescription:@"调高"]
+            [NSImage imageWithSystemSymbolName:@"minus" accessibilityDescription:L(@"调矮")],
+            [NSImage imageWithSystemSymbolName:@"plus" accessibilityDescription:L(@"调高")]
         ]
                       trackingMode:NSSegmentSwitchTrackingMomentary
                             target:self
@@ -251,7 +252,7 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     [self.heightSeg setWidth:30 forSegment:0];
     [self.heightSeg setWidth:30 forSegment:1];
     [self.heightSeg sizeToFit];
-    self.heightSeg.toolTip = @"只改高度。手机上画面底部被输入法挡住、电脑上远程窗口没全屏时调矮";
+    self.heightSeg.toolTip = L(@"只改高度。手机上画面底部被输入法挡住、电脑上远程窗口没全屏时调矮");
     placeRight(r, y, self.heightSeg, -2);
     self.heightLabel = numLabel(60);
     placeRight(r, y, self.heightLabel, self.heightSeg.frame.size.width + 6);
@@ -277,7 +278,7 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     for (NSView *v in [b.subviews copy]) {
         [v removeFromSuperview];
     }
-    NSTextField *h = label(@"预设", 12, NSFontWeightMedium, NSColor.secondaryLabelColor);
+    NSTextField *h = label(L(@"预设"), 12, NSFontWeightMedium, NSColor.secondaryLabelColor);
     [h setFrameOrigin:NSMakePoint(PAD, 10)];
     [b addSubview:h];
     CGFloat y = 30;
@@ -295,14 +296,14 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
             [me savePreset:i name:name];
         };
         NSMenu *m = [NSMenu new];
-        for (NSArray *it in @[ @[ @"重命名", @"renamePreset:" ], @[ @"用当前尺寸覆盖", @"overwritePreset:" ],
-                               @[ @"删除", @"deletePreset:" ] ]) {
+        for (NSArray *it in @[ @[ L(@"重命名"), @"renamePreset:" ], @[ L(@"用当前尺寸覆盖"), @"overwritePreset:" ],
+                               @[ L(@"删除"), @"deletePreset:" ] ]) {
             NSMenuItem *mi = [m addItemWithTitle:it[0] action:NSSelectorFromString(it[1]) keyEquivalent:@""];
             mi.target = self;
             mi.tag = i;
         }
         r.menu = m;
-        r.toolTip = @"点一下切换，双击改名，右键可覆盖或删除";
+        r.toolTip = L(@"点一下切换，双击改名，右键可覆盖或删除");
         [b addSubview:r];
         [rows addObject:r];
         y += PRESET_H;
@@ -312,7 +313,7 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     // 新建预设：当前尺寸已经存过时变淡、点不了
     y -= 4;
     self.addRow = [[ClickRow alloc] initWithFrame:NSMakeRect(0, y, PANEL_W, ROW_H)];
-    rowTitle(self.addRow, 0, @"plus", YES, @"新建预设");
+    rowTitle(self.addRow, 0, @"plus", YES, L(@"新建预设"));
     __weak AppDelegate *me = self;
     self.addRow.onClick = ^{
         [me addPreset];
@@ -328,7 +329,7 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     ui.contentTintColor = NSColor.labelColor;
     ui.frame = NSMakeRect(PAD, floor((36 - 18) / 2), 18, 18);
     [upd addSubview:ui];
-    NSTextField *ul = label(@"检查更新", 13, NSFontWeightRegular, NSColor.labelColor);
+    NSTextField *ul = label(L(@"检查更新"), 13, NSFontWeightRegular, NSColor.labelColor);
     [ul setFrameOrigin:NSMakePoint(PAD + 26, floor((36 - ul.frame.size.height) / 2))];
     [upd addSubview:ul];
     NSString *ver = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"";
@@ -351,7 +352,7 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     qi.contentTintColor = NSColor.labelColor;
     qi.frame = NSMakeRect(PAD, floor((36 - 18) / 2), 18, 18);
     [quit addSubview:qi];
-    NSTextField *q = label(@"退出", 13, NSFontWeightRegular, NSColor.labelColor);
+    NSTextField *q = label(L(@"退出"), 13, NSFontWeightRegular, NSColor.labelColor);
     [q setFrameOrigin:NSMakePoint(PAD + 26, floor((36 - q.frame.size.height) / 2))];
     [quit addSubview:q];
     NSTextField *k = label(@"⌘Q", 13, NSFontWeightRegular, NSColor.secondaryLabelColor);
@@ -386,13 +387,13 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     BOOL ready = on && mirrored && !closing;
     self.power.state = on && !closing ? NSControlStateValueOn : NSControlStateValueOff;
     self.power.enabled = !closing && !waiting && !_terminating;
-    NSString *st = closing ? @"正在关闭" : !on ? @"已关闭" : ready ? @"已开启" : @"正在开启";
+    NSString *st = closing ? L(@"正在关闭") : !on ? L(@"已关闭") : ready ? L(@"已开启") : L(@"正在开启");
     self.stateLabel.stringValue = ready ? [NSString stringWithFormat:@"%@ · %d × %d", st, _w, _h] : st;
     self.stateLabel.textColor = ready ? NSColor.controlAccentColor : NSColor.secondaryLabelColor;
     self.statusItem.button.image = statusImage(on);
 
     [self.modelBtn.menu removeAllItems];
-    [self.modelBtn addItemWithTitle:@(kModels[_model].name)];
+    [self.modelBtn addItemWithTitle:shownText(kModels[_model].name)];
     [self.modelBtn sizeToFit];
     NSRect f = self.modelBtn.frame;
     CGFloat w = MIN(f.size.width, PANEL_W - TITLE_X - 70);
@@ -419,7 +420,7 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
 
 // 机型项右侧带推荐尺寸
 - (void)addModel:(int)i to:(NSMenu *)m {
-    NSMenuItem *it = [m addItemWithTitle:@(kModels[i].name) action:@selector(pickModel:) keyEquivalent:@""];
+    NSMenuItem *it = [m addItemWithTitle:shownText(kModels[i].name) action:@selector(pickModel:) keyEquivalent:@""];
     it.target = self;
     it.tag = i;
     it.state = i == _model ? NSControlStateValueOn : NSControlStateValueOff;
@@ -443,7 +444,7 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
 // 点开设备菜单时现搭：第一项是按钮标题，然后每个品牌一个子菜单，有系列的（iPhone 按代）再分一层。手机和电脑之间加分隔线
 - (void)menuNeedsUpdate:(NSMenu *)menu {
     [menu removeAllItems];
-    [menu addItemWithTitle:@(kModels[_model].name) action:nil keyEquivalent:@""];
+    [menu addItemWithTitle:shownText(kModels[_model].name) action:nil keyEquivalent:@""];
     BOOL sawDesktop = NO;
     for (NSString *g in groupNames()) {
         int first = firstModelOfGroup((int)[groupNames() indexOfObject:g]);
@@ -463,14 +464,14 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
             }
             if (i == 0 || !kModels[i - 1].series || strcmp(kModels[i - 1].series, kModels[i].series) != 0) {
                 sub = [NSMenu new];
-                NSMenuItem *si = [gm addItemWithTitle:@(kModels[i].series) action:nil keyEquivalent:@""];
+                NSMenuItem *si = [gm addItemWithTitle:shownText(kModels[i].series) action:nil keyEquivalent:@""];
                 si.submenu = sub;
                 BOOL cur = kModels[_model].series && strcmp(kModels[_model].series, kModels[i].series) == 0;
                 si.state = cur ? NSControlStateValueOn : NSControlStateValueOff;
             }
             [self addModel:i to:sub];
         }
-        NSMenuItem *gi = [menu addItemWithTitle:g action:nil keyEquivalent:@""];
+        NSMenuItem *gi = [menu addItemWithTitle:NSLocalizedString(g, nil) action:nil keyEquivalent:@""];
         gi.submenu = gm;
         gi.state = [g isEqualToString:@(kModels[_model].group)] ? NSControlStateValueOn : NSControlStateValueOff;
     }
@@ -572,7 +573,7 @@ static CFAbsoluteTime lastApply;
     }
     NSMutableArray *ps = [self.presets mutableCopy];
     [ps addObject:@{
-        @"name" : [NSString stringWithFormat:@"%s %d×%d", kModels[_model].name, _w, _h],
+        @"name" : [NSString stringWithFormat:@"%@ %d×%d", shownText(kModels[_model].name), _w, _h],
         @"model" : @(kModels[_model].name),
         @"w" : @(_w),
         @"h" : @(_h)
@@ -664,8 +665,8 @@ static CFAbsoluteTime lastApply;
     if (!displayOn(_w, _h, sizeRange(_model))) {
         otherAppsRelaunch();
         NSAlert *a = [NSAlert new];
-        a.messageText = @"虚拟屏创建失败";
-        a.informativeText = @"需要 macOS 12 或更新的版本。";
+        a.messageText = L(@"虚拟屏创建失败");
+        a.informativeText = L(@"需要 macOS 12 或更新的版本。");
         [a runModal];
     }
     [self refresh];
@@ -772,6 +773,20 @@ static NSImage *statusImage(BOOL on) {
     }
 }
 
+- (void)savePanelShot:(NSString *)path {
+    [self refresh];
+    NSView *v = self.popover.contentViewController.view;
+    // 不在屏幕上的视图要放进一个窗口里才按外观画背景和控件
+    NSWindow *w = [[NSWindow alloc] initWithContentRect:v.bounds styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
+    w.appearance = NSApp.appearance;
+    w.backgroundColor = NSColor.windowBackgroundColor;
+    w.contentView = v;
+    [v layoutSubtreeIfNeeded];
+    NSBitmapImageRep *rep = [v bitmapImageRepForCachingDisplayInRect:v.bounds];
+    [w.contentView cacheDisplayInRect:v.bounds toBitmapImageRep:rep];
+    [[rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:path atomically:YES];
+}
+
 - (void)popoverDidClose:(NSNotification *)n {
     if (self.outsideClick) {
         [NSEvent removeMonitor:self.outsideClick];
@@ -783,12 +798,12 @@ static NSImage *statusImage(BOOL on) {
     // 隐藏的主菜单，只放一个退出：面板打开时按 ⌘Q 能退出（面板上的退出行写着 ⌘Q）
     NSMenu *mainMenu = [NSMenu new];
     NSMenu *appMenu = [NSMenu new];
-    [appMenu addItemWithTitle:@"退出" action:@selector(terminate:) keyEquivalent:@"q"];
+    [appMenu addItemWithTitle:L(@"退出") action:@selector(terminate:) keyEquivalent:@"q"];
     [mainMenu addItemWithTitle:@"" action:nil keyEquivalent:@""].submenu = appMenu;
     NSApp.mainMenu = mainMenu;
     [self load];
     self.statusItem = [NSStatusBar.systemStatusBar statusItemWithLength:NSSquareStatusItemLength];
-    self.statusItem.button.toolTip = @"远程模式";
+    self.statusItem.button.toolTip = L(@"远程模式");
     self.statusItem.button.target = self;
     self.statusItem.button.action = @selector(togglePanel:);
     [self buildPanel];

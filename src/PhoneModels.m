@@ -104,3 +104,7 @@ int firstModelOfGroup(int g) {
     }
     return 0;
 }
+
+NSString *shownText(const char *s) {
+    return s ? NSLocalizedString(@(s), nil) : nil;
+}

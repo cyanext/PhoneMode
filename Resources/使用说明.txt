@@ -12,3 +12,20 @@
 4. 调好后点「新建预设」。点面板最下面的「退出」，显示器恢复原样。
 
 需要 macOS 12 或更新的版本。
+
+---
+
+PhoneMode
+
+When you control a Mac from your phone, PhoneMode resizes the Mac's screen to fit the phone, clear of the notch and the keyboard. When you control an ultrawide monitor from a computer, the screen matches that computer's aspect ratio.
+
+Install
+Drag 远程模式 (PhoneMode) into Applications. If macOS says it can't verify the developer the first time you open it, go to System Settings > Privacy & Security and click "Open Anyway" at the bottom.
+
+Use
+1. Click the line-chart icon in the menu bar to open the panel.
+2. Under "Device", pick your phone model. If you control from a 13-inch MacBook or a 27-inch display, pick it under "Computer". The remote screen turns on when UU Remote connects and off when it disconnects; you can also use the switch at the top.
+3. If the text is too big or too small, drag "Display Size". If the keyboard covers the bottom, click − next to "Screen Height".
+4. When it looks right, click "New Preset". Click "Quit" at the bottom of the panel to restore your displays.
+
+The interface follows your system language: Chinese or English. Requires macOS 12 or later.

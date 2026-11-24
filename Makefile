@@ -47,6 +47,9 @@ app: $(BIN) $(ICNS)
 	mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
 	cp $(BIN) "$(APP)/Contents/MacOS/$(EXECUTABLE)"
 	cp $(ICNS) "$(APP)/Contents/Resources/AppIcon.icns"
+	@# 界面文字的英文翻译：缺了就停，免得英文界面里冒出中文
+	python3 tools/l10n.py
+	cp -R Resources/*.lproj "$(APP)/Contents/Resources/"
 	sed -e 's/@APP_NAME@/$(APP_NAME)/g' -e 's/@EXECUTABLE@/$(EXECUTABLE)/g' \
 	    -e 's/@BUNDLE_ID@/$(BUNDLE_ID)/g' -e 's/@VERSION@/$(VERSION)/g' \
 	    -e 's/@MIN_MACOS@/$(MIN_MACOS)/g' Resources/Info.plist.in > "$(APP)/Contents/Info.plist"

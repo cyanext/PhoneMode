@@ -1,4 +1,5 @@
 #import "Updater.h"
+#import "Localize.h"
 
 #define CHECK_EVERY (24 * 3600)
 #define SKIP_KEY @"updateSkipVersion" // 用户点了「跳过这个版本」的版本号
@@ -30,7 +31,7 @@ static NSString *shown(NSString *v) {
 }
 
 static NSString *appName(void) {
-    return [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleName"] ?: @"本程序";
+    return NSBundle.mainBundle.localizedInfoDictionary[@"CFBundleName"] ?: [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleName"] ?: L(@"本程序");
 }
 
 // 按点分的数字逐段比，1.10 比 1.9 新。tag 前面的 v 去掉
@@ -56,7 +57,7 @@ static NSComparisonResult compareVersions(NSString *a, NSString *b) {
     NSAlert *a = [NSAlert new];
     a.messageText = title;
     a.informativeText = text ?: @"";
-    for (NSString *b in buttons.count ? buttons : @[ @"好" ]) {
+    for (NSString *b in buttons.count ? buttons : @[ L(@"好") ]) {
         [a addButtonWithTitle:b];
     }
     for (NSUInteger i = 0; i < a.buttons.count; i++) {
@@ -122,7 +123,7 @@ static void alert(NSString *title, NSString *text) {
     }
     if (_pendingApp) {
         if (manual) {
-            alert(@"新版本已经下载好", @"等远程画面关闭后会自动安装。");
+            alert(L(@"新版本已经下载好"), L(@"等远程画面关闭后会自动安装。"));
         }
         return;
     }
@@ -146,14 +147,14 @@ static void alert(NSString *title, NSString *text) {
     NSString *tag = [rel[@"tag_name"] isKindOfClass:NSString.class] ? rel[@"tag_name"] : nil;
     if (!tag) {
         if (manual) {
-            alert(@"检查更新失败", @"连不上 GitHub，稍后再试。");
+            alert(L(@"检查更新失败"), L(@"连不上 GitHub，稍后再试。"));
         }
         return;
     }
     NSString *ver = [tag stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"vV"]];
     if (compareVersions(ver, currentVersion()) != NSOrderedDescending) {
         if (manual) {
-            alert(@"已经是最新版本", [NSString stringWithFormat:@"%@ %@", appName(), shown(currentVersion())]);
+            alert(L(@"已经是最新版本"), [NSString stringWithFormat:@"%@ %@", appName(), shown(currentVersion())]);
         }
         return;
     }
@@ -170,19 +171,26 @@ static void alert(NSString *title, NSString *text) {
     }
     if (!zip) {
         if (manual) {
-            alert(@"新版本还没有安装包", @"稍后再试。");
+            alert(L(@"新版本还没有安装包"), L(@"稍后再试。"));
         }
         return;
     }
-    // 更新说明太长就截断，提示框放不下
     NSString *notes = [rel[@"body"] isKindOfClass:NSString.class] ? rel[@"body"] : @"";
+    // 更新说明先写中文，一行 --- 之后写英文：按界面语言只显示一半，没有 --- 的整段显示
+    NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:@"^---[ \\t\\r]*$" options:NSRegularExpressionAnchorsMatchLines error:nil];
+    NSRange sep = [re rangeOfFirstMatchInString:notes options:0 range:NSMakeRange(0, notes.length)];
+    if (sep.location != NSNotFound) {
+        notes = uiIsChinese() ? [notes substringToIndex:sep.location] : [notes substringFromIndex:NSMaxRange(sep)];
+        notes = [notes stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    }
+    // 更新说明太长就截断，提示框放不下
     if (notes.length > 600) {
         notes = [[notes substringToIndex:600] stringByAppendingString:@"…"];
     }
     _busy = YES; // 提示框开着时不再重复检查、重复弹
-    [self show:[NSString stringWithFormat:@"%@ 有新版本 %@", appName(), shown(ver)]
-          text:[NSString stringWithFormat:@"当前是 %@。\n\n%@", shown(currentVersion()), notes]
-       buttons:@[ @"更新", @"稍后", @"跳过这个版本" ]
+    [self show:[NSString stringWithFormat:L(@"%@ 有新版本 %@"), appName(), shown(ver)]
+          text:[NSString stringWithFormat:L(@"当前是 %@。\n\n%@"), shown(currentVersion()), notes]
+       buttons:@[ L(@"更新"), L(@"稍后"), L(@"跳过这个版本") ]
           done:^(NSInteger i) {
               self->_busy = NO;
               if (i == 2) {
@@ -218,12 +226,12 @@ static void alert(NSString *title, NSString *text) {
               dispatch_async(dispatch_get_main_queue(), ^{
                   self->_busy = NO;
                   if (!app) {
-                      alert(@"更新失败", @"安装包下载或解压没成功，稍后再试。");
+                      alert(L(@"更新失败"), L(@"安装包下载或解压没成功，稍后再试。"));
                       return;
                   }
                   self->_pendingApp = app;
                   if (self.canInstallNow && !self.canInstallNow()) {
-                      alert(@"新版本已经下载好", @"远程画面正开着，关闭后会自动安装。");
+                      alert(L(@"新版本已经下载好"), L(@"远程画面正开着，关闭后会自动安装。"));
                       return;
                   }
                   [self installPendingIfReady];

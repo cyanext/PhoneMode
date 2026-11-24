@@ -8,4 +8,5 @@
 - (void)setW:(int)w h:(int)h;
 // 开或关远程画面
 - (void)setRemoteOn:(BOOL)on;
+- (void)savePanelShot:(NSString *)path; // 开发用：面板画成 2 倍 PNG
 @end

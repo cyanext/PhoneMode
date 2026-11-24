@@ -1,0 +1,64 @@
+/* 远程模式的英文界面。键是源码里 L(@"…") 和型号表里的中文原文，改了源码跑 python3 tools/l10n.py 检查 */
+
+/* 面板 */
+"远程模式" = "PhoneMode";
+"跟随 UU 远程" = "Follow UU Remote";
+"网易 UU 远程连上时自动开启远程画面，断开时自动关闭" = "Turns on when NetEase UU Remote connects, and off when it disconnects";
+"设备" = "Device";
+"显示大小" = "Display Size";
+"更大文本" = "Larger Text";
+"更多空间" = "More Space";
+"画面高度" = "Screen Height";
+"调矮" = "Shorter";
+"调高" = "Taller";
+"只改高度。手机上画面底部被输入法挡住、电脑上远程窗口没全屏时调矮" = "Changes the height only. Make it shorter if the keyboard covers the bottom on your phone, or if the remote window isn't full screen on your computer";
+"预设" = "Presets";
+"重命名" = "Rename";
+"用当前尺寸覆盖" = "Replace with Current Size";
+"删除" = "Delete";
+"点一下切换，双击改名，右键可覆盖或删除" = "Click to switch, double-click to rename, right-click to replace or delete";
+"新建预设" = "New Preset";
+"检查更新" = "Check for Updates";
+"退出" = "Quit";
+"正在关闭" = "Turning off";
+"已关闭" = "Off";
+"已开启" = "On";
+"正在开启" = "Turning on";
+"虚拟屏创建失败" = "Couldn't create the virtual display";
+"需要 macOS 12 或更新的版本。" = "Requires macOS 12 or later.";
+
+/* 设备菜单 */
+"iPhone 18 系列" = "iPhone 18 Series";
+"iPhone 17 系列" = "iPhone 17 Series";
+"iPhone 16 系列" = "iPhone 16 Series";
+"iPhone 15 系列" = "iPhone 15 Series";
+"iPhone 14 系列" = "iPhone 14 Series";
+"iPhone 13 系列" = "iPhone 13 Series";
+"iPhone 12 系列" = "iPhone 12 Series";
+"iPhone 11 系列" = "iPhone 11 Series";
+"iPhone XS、XR、X" = "iPhone XS, XR, X";
+"6.7 英寸（20:9）" = "6.7-inch (20:9)";
+"6.3 英寸（20:9）" = "6.3-inch (20:9)";
+"电脑" = "Computer";
+"MacBook 13 英寸" = "13-inch MacBook";
+"27 英寸显示器" = "27-inch Display";
+
+/* 自动更新（Updater.m，和 PhoneMode 共用） */
+"本程序" = "This app";
+"好" = "OK";
+"新版本已经下载好" = "The update is ready";
+"等远程画面关闭后会自动安装。" = "It will be installed when the remote screen is turned off.";
+"检查更新失败" = "Couldn't check for updates";
+"连不上 GitHub，稍后再试。" = "Can't reach GitHub. Try again later.";
+"已经是最新版本" = "You're up to date";
+"新版本还没有安装包" = "The new version isn't ready to download yet";
+"稍后再试。" = "Try again later.";
+"%@ 有新版本 %@" = "%@ %@ is available";
+"当前是 %@。\n\n%@" = "You have %@.\n\n%@";
+"更新" = "Update";
+"稍后" = "Later";
+"跳过这个版本" = "Skip This Version";
+"更新失败" = "Update failed";
+"安装包下载或解压没成功，稍后再试。" = "Couldn't download or unzip the update. Try again later.";
+"远程画面正开着，关闭后会自动安装。" = "The remote screen is on. The update will be installed when it's turned off.";
+

@@ -24,19 +24,17 @@ PhoneMode creates a virtual display as the main screen, sized for the device you
 <p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.png"><img src="docs/screenshot-light.png" width="300" alt="The menu bar panel: switch, device, display size, screen height and presets"></picture></p>
 
 1. Click the line-chart icon in the menu bar to open the panel. A hollow box means off; a filled box means on
-2. Under 设备 (Device), pick what you're controlling from: your phone model, or a laptop or monitor
-3. 跟随 UU 远程 (Follow UU Remote) is on by default, so PhoneMode switches as soon as UU connects. You can also use the switch at the top
-4. If the text is too big or too small, drag 显示大小 (Display Size). If the keyboard covers the bottom of the screen, click − next to 画面高度 (Screen Height)
-5. When it looks right, click 新建预设 (New Preset) to save it. Double-click a preset to rename it; right-click to overwrite it with the current size or delete it
-6. Click 退出 (Quit) or press ⌘Q to restore your displays
-
-The app's interface is in Chinese.
+2. Under "Device", pick what you're controlling from: your phone model, or a laptop or monitor
+3. "Follow UU Remote" is on by default, so PhoneMode switches as soon as UU connects. You can also use the switch at the top
+4. If the text is too big or too small, drag "Display Size". If the keyboard covers the bottom of the screen, click − next to "Screen Height"
+5. When it looks right, click "New Preset" to save it. Double-click a preset to rename it; right-click to overwrite it with the current size or delete it
+6. Click "Quit" or press ⌘Q to restore your displays
 
 ## Install
 
 Download `PhoneMode-<version>.dmg` from [Releases](https://github.com/cyanext/PhoneMode/releases), open it and drag 远程模式 (PhoneMode) into Applications. The first time you open it, macOS says it can't verify the developer. Go to System Settings › Privacy & Security and click "Open Anyway" at the bottom.
 
-Requires macOS 12 or later, on Apple silicon or Intel. When a new version is out, PhoneMode tells you, and clicking 更新 (Update) downloads and installs it. If the remote screen is on, it waits until it's off.
+Requires macOS 12 or later, on Apple silicon or Intel. The interface follows your system language: Chinese or English. When a new version is out, PhoneMode tells you, and clicking "Update" downloads and installs it. If the remote screen is on, it waits until it's off.
 
 ## What it changes on your Mac
 

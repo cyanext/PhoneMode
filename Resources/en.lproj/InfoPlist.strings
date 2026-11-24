@@ -1,0 +1,3 @@
+/* 英文界面下的程序名（更新提示里用） */
+"CFBundleName" = "PhoneMode";
+"CFBundleDisplayName" = "PhoneMode";

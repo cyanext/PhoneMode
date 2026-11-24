@@ -6,6 +6,7 @@
 //   --appearance light|dark   强制浅色或深色外观（截图用）
 //   --selftest                跑一遍自测，见 SelfTest.h
 //   --preview                 只显示界面，不碰显示器（改界面时截图用，可以和正式版同时开）
+//   --shot <PNG>              把面板画成 2 倍图存下来后退出，不用菜单栏图标（菜单栏放不下时面板弹不出来）。配合 --preview、--appearance
 #import "AppDelegate.h"
 #import "AppIcon.h"
 #import "DisplayControl.h"
@@ -34,7 +35,7 @@ static void handleSignals(void) {
 
 int main(int argc, const char **argv) {
     @autoreleasepool {
-        NSString *iconDir = nil, *appearance = nil;
+        NSString *iconDir = nil, *appearance = nil, *shot = nil;
         int quitAfter = 0;
         BOOL selfTest = NO;
         for (int i = 1; i < argc; i++) {
@@ -48,6 +49,9 @@ int main(int argc, const char **argv) {
                 i++;
             } else if ([arg isEqualToString:@"--appearance"] && value) {
                 appearance = value;
+                i++;
+            } else if ([arg isEqualToString:@"--shot"] && value) {
+                shot = value;
                 i++;
             } else if ([arg isEqualToString:@"--selftest"]) {
                 selfTest = YES;
@@ -79,6 +83,12 @@ int main(int argc, const char **argv) {
         }
         if (selfTest) {
             selfTestSchedule(delegate);
+        }
+        if (shot) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                [delegate savePanelShot:shot];
+                quitSoon();
+            });
         }
         [app run];
     }

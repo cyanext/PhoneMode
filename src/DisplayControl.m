@@ -1,3 +1,4 @@
+#import "Localize.h"
 #import "DisplayControl.h"
 #import "CGVirtualDisplay.h"
 #import "PhoneModels.h"
@@ -441,7 +442,7 @@ BOOL displayOn(int w, int h, SizeRange r) {
     }
     CGVirtualDisplayDescriptor *d = [D new];
     d.queue = dispatch_get_main_queue();
-    d.name = @"远程模式";
+    d.name = L(@"远程模式");
     d.maxPixelsWide = WMAX * 2;
     d.maxPixelsHigh = HMAX * 2;
     d.sizeInMillimeters = CGSizeMake(300, 300);

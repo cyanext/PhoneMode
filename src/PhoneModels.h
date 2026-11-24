@@ -40,3 +40,6 @@ int modelIndexByName(NSString *n);
 NSArray<NSString *> *groupNames(void);
 int groupOfModel(int m);
 int firstModelOfGroup(int g);
+
+// 给人看的名字：表里存的是中文原名（也是设置里存的键），英文界面按 en.lproj 翻译。没有中文的（iPhone 型号）原样显示
+NSString *shownText(const char *s);
