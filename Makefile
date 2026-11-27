@@ -15,7 +15,9 @@ ICNS        := $(BUILD)/AppIcon.icns
 APP         := $(BUILD)/$(APP_NAME).app
 DMG_STAGE   := $(BUILD)/dmg
 DMG         := $(DIST)/$(APP_NAME).dmg
-INSTALL_DIR := $(HOME)/Applications
+# 装在 /Applications：macOS 27 的菜单栏整理工具只认这里的应用，装在 ~/Applications 时菜单栏图标会被一直藏住
+INSTALL_DIR := /Applications
+OLD_INSTALL := $(HOME)/Applications/$(APP_NAME).app
 INSTALLED   := $(INSTALL_DIR)/$(APP_NAME).app
 
 SRCS    := $(wildcard src/*.m)
@@ -73,14 +75,13 @@ zip: app
 	rm -f "$(DIST)/PhoneMode-$(VERSION).zip"
 	/usr/bin/ditto -c -k --keepParent "$(APP)" "$(DIST)/PhoneMode-$(VERSION).zip"
 
-# 装到 ~/Applications 并重新打开；正在运行的旧版本先正常退出，让它把显示器恢复好
+# 装到 /Applications 并重新打开；正在运行的旧版本（包括以前装在 ~/Applications 的）先正常退出，让它把显示器恢复好
 install: app
-	-pkill -TERM -f "$(INSTALLED)/Contents/MacOS/$(EXECUTABLE)$$"
+	-pkill -TERM -f "/Applications/$(APP_NAME).app/Contents/MacOS/$(EXECUTABLE)$$"
 	@for i in 1 2 3 4 5 6 7 8 9 10 11 12; do \
-	    pgrep -f "$(INSTALLED)/Contents/MacOS/$(EXECUTABLE)$$" >/dev/null || break; sleep 0.5; \
+	    pgrep -f "/Applications/$(APP_NAME).app/Contents/MacOS/$(EXECUTABLE)$$" >/dev/null || break; sleep 0.5; \
 	done
-	mkdir -p "$(INSTALL_DIR)"
-	rm -rf "$(INSTALLED)"
+	rm -rf "$(INSTALLED)" "$(OLD_INSTALL)"
 	cp -R "$(APP)" "$(INSTALLED)"
 	open "$(INSTALLED)"
 
