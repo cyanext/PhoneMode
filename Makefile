@@ -24,7 +24,7 @@ SRCS    := $(wildcard src/*.m)
 HDRS    := $(wildcard src/*.h)
 CFLAGS  := -fobjc-arc -O2 -arch arm64 -arch x86_64 -mmacosx-version-min=$(MIN_MACOS) \
            -Wall -Wextra -Werror -Wno-unused-parameter
-LDFLAGS := -framework Cocoa -framework CoreGraphics
+LDFLAGS := -framework Cocoa -framework CoreGraphics -framework ApplicationServices
 
 .PHONY: build icon app dmg zip install selftest format clean
 
@@ -57,7 +57,9 @@ app: $(BIN) $(ICNS)
 	    -e 's/@MIN_MACOS@/$(MIN_MACOS)/g' Resources/Info.plist.in > "$(APP)/Contents/Info.plist"
 	@# 访达或同步盘会给文件夹加扩展属性，带着它们签不了名
 	/usr/bin/xattr -cr "$(APP)"
-	codesign -s - --force --deep "$(APP)"
+	@# 没有开发者证书，只能临时签名。临时签名默认按程序内容认人，每次更新系统都当成新程序，辅助功能权限要重新勾。
+	@# 这里把「认人」的条件写成只看包名，更新后权限保留
+	codesign -s - --force --deep -r='designated => identifier "$(BUNDLE_ID)"' "$(APP)"
 
 # 打包 dmg：应用、「应用程序」快捷方式、使用说明
 dmg: app

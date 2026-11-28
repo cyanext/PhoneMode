@@ -10,7 +10,8 @@
 2. 在「设备」里选手机型号；用 MacBook 13 英寸或 27 英寸显示器远程时，在「电脑」里选对应的一项。UU 远程连上时会自动开启远程画面，断开后自动关闭；也可以用顶部开关手动开关。
 3. 用手机远程时，在「手机画面」里选全屏或半屏：只看不打字选全屏，要打字选半屏。
 4. 字太大或太小，拖「显示大小」；画面底部被挡住，用「画面高度」的 − 调矮。
-5. 调好后点「新建预设」。点面板最下面的「退出」，显示器恢复原样。
+5. 手机上滑动太快或太慢，在「滚动速度」里选一档，100% 是 UU 原速；装了 Mos 这类平滑滚动工具时往 25% 以下选。第一次调整要在系统设置里允许辅助功能。
+6. 调好后点「新建预设」。点面板最下面的「退出」，显示器恢复原样。
 
 需要 macOS 12 或更新的版本。
 
@@ -28,6 +29,7 @@ Use
 2. Under "Device", pick your phone model. If you control from a 13-inch MacBook or a 27-inch display, pick it under "Computer". The remote screen turns on when UU Remote connects and off when it disconnects; you can also use the switch at the top.
 3. On a phone, pick Full or Half under "Phone Screen": Full for viewing, Half when you need to type.
 4. If the text is too big or too small, drag "Display Size". If something covers the bottom, click − next to "Screen Height".
-5. When it looks right, click "New Preset". Click "Quit" at the bottom of the panel to restore your displays.
+5. If swiping on your phone scrolls too fast or too slow, pick a level under "Scroll Speed". 100% is UU's own speed; with smooth-scrolling tools like Mos, try 25% or lower. The first time, allow Accessibility in System Settings.
+6. When it looks right, click "New Preset". Click "Quit" at the bottom of the panel to restore your displays.
 
 The interface follows your system language: Chinese or English. Requires macOS 12 or later.

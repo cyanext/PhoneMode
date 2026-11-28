@@ -4,6 +4,7 @@
 #import "OtherApps.h"
 #import "PhoneModels.h"
 #import "Rows.h"
+#import "ScrollSpeed.h"
 #import "Theme.h"
 #import "UUWatch.h"
 #import "Updater.h"
@@ -24,7 +25,7 @@
 @property(strong) NSSwitch *power, *followUU;
 @property(strong) NSSegmentedControl *fullSeg;
 @property(strong) NSTextField *stateLabel, *sizeLabel, *heightLabel;
-@property(strong) NSPopUpButton *modelBtn;
+@property(strong) NSPopUpButton *modelBtn, *scrollBtn;
 @property(strong) NSSlider *slider;
 @property(strong) NSSegmentedControl *heightSeg;
 @property(strong) id<NSObject> activity;
@@ -297,6 +298,26 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     placeRight(v, y, self.heightSeg, -2);
     self.heightLabel = numLabel(60);
     placeRight(v, y, self.heightLabel, self.heightSeg.frame.size.width + 6);
+
+    // 滚动速度：只调 UU 远程发来的滚动，100% 是原速。装了 Mos 这类平滑滚动工具的会被放大，要往低调；没装的嫌慢可以调快
+    y += ROW_H;
+    rowTitle(v, y, @"scroll", NO, L(@"滚动速度"));
+    self.scrollBtn = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 90, 24) pullsDown:NO];
+    self.scrollBtn.bordered = NO;
+    for (NSNumber *pct in @[ @200, @150, @100, @70, @50, @35, @25, @18, @12 ]) {
+        NSString *t = [NSString stringWithFormat:@"%@%%", pct];
+        [self.scrollBtn addItemWithTitle:pct.integerValue == 100 ? [NSString stringWithFormat:@"%@ %@", t, L(@"原速")] : t];
+        self.scrollBtn.lastItem.tag = pct.integerValue;
+    }
+    [self.scrollBtn sizeToFit];
+    self.scrollBtn.target = self;
+    self.scrollBtn.action = @selector(scrollPicked:);
+    self.scrollBtn.toolTip = L(@"调整手机上滑动的滚动速度，只影响 UU 远程，不影响本机鼠标和触控板。第一次调整要在系统设置里允许辅助功能");
+    placeRight(v, y, self.scrollBtn, -4);
+    if (![self.scrollBtn selectItemWithTag:[self scrollPct]]) {
+        [self.scrollBtn selectItemWithTag:100];
+    }
+
     y += ROW_H + 6;
     separator(v, y);
 
@@ -468,6 +489,20 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     if (f.size.height != self.root.frame.size.height) {
         self.root.frame = f;
         self.popover.contentSize = f.size;
+    }
+}
+
+// 滚动速度百分比，没设过是 100
+- (NSInteger)scrollPct {
+    NSInteger p = [self.ud integerForKey:@"scrollPct"];
+    return p > 0 && p <= 200 ? p : 100;
+}
+
+- (void)scrollPicked:(NSPopUpButton *)b {
+    [self.ud setInteger:b.selectedTag forKey:@"scrollPct"];
+    if (!scrollSpeedSet(b.selectedTag / 100.0)) {
+        // 还没授权：收起面板，让系统的授权提示露出来。授权后自动生效
+        [self.popover performClose:nil];
     }
 }
 
@@ -867,6 +902,13 @@ static NSImage *statusImage(BOOL on) {
     [mainMenu addItemWithTitle:@"" action:nil keyEquivalent:@""].submenu = appMenu;
     NSApp.mainMenu = mainMenu;
     [self load];
+    scrollSpeedSet([self scrollPct] / 100.0);
+    // 菜单栏图标默认放在控制中心左边紧挨着：远程画面窄，排在后面的图标会被挤掉看不见。
+    // 数值是离屏幕右边的距离，越小越靠右；用户按住 ⌘ 拖过之后系统会改写它，这里只在没有时写
+    NSString *pos = @"NSStatusItem Preferred Position Item-0";
+    if (![self.ud objectForKey:pos]) {
+        [self.ud setDouble:200 forKey:pos];
+    }
     self.statusItem = [NSStatusBar.systemStatusBar statusItemWithLength:NSSquareStatusItemLength];
     self.statusItem.button.toolTip = L(@"远程模式");
     self.statusItem.button.target = self;

@@ -13,6 +13,9 @@
 "更大文本" = "Larger Text";
 "更多空间" = "More Space";
 "画面高度" = "Screen Height";
+"滚动速度" = "Scroll Speed";
+"调整手机上滑动的滚动速度，只影响 UU 远程，不影响本机鼠标和触控板。第一次调整要在系统设置里允许辅助功能" = "Adjusts scrolling when you swipe on your phone. Only affects UU Remote, not this Mac's mouse or trackpad. The first time, allow Accessibility in System Settings";
+"原速" = "Original";
 "调矮" = "Shorter";
 "调高" = "Taller";
 "只改高度。手机上画面底部被输入法挡住、电脑上远程窗口没全屏时调矮" = "Changes the height only. Make it shorter if the keyboard covers the bottom on your phone, or if the remote window isn't full screen on your computer";
