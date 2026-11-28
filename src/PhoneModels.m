@@ -79,7 +79,7 @@ int baseW(int m, BOOL full) {
 
 int portraitH(int m, int w) {
     const Model *d = &kModels[m];
-    double r = modelIsDesktop(m) ? (double)d->h / d->w : (d->hmm - d->top - d->bottom) / d->wmm;
+    double r = modelIsDesktop(m) ? (double)d->h / d->w : (d->hmm - d->top - d->bottom - FULL_EXTRA_MM) / d->wmm;
     SizeRange sr = sizeRange(m);
     return MAX(sr.hmin, MIN(sr.hmax, (int)lround(w * r / STEP) * STEP));
 }

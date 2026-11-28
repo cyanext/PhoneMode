@@ -101,6 +101,19 @@
     }
     _w = (int)[self.ud integerForKey:@"w"] ?: baseW(_model, _full);
     _h = (int)[self.ud integerForKey:@"h"] ?: [self defaultH:_model w:_w];
+    // 从 1.5 及以前升级上来：存的是半屏尺寸，没有全屏半屏的设置。按全屏换算一次，显示大小的比例不变。
+    // 1.6、1.6.1 也没在换设备时存这个设置，所以看宽高比更接近哪一种：接近全屏的已经是全屏尺寸，不动
+    if (![self.ud objectForKey:@"full"]) {
+        [self.ud setBool:YES forKey:@"full"];
+        if (!modelIsDesktop(_model)) {
+            double r = (double)_h / _w, half = (double)kModels[_model].h / kModels[_model].w;
+            double full = (double)portraitH(_model, baseW(_model, YES)) / baseW(_model, YES);
+            if (fabs(r - half) < fabs(r - full)) {
+                _w = (int)lround(_w * (double)baseW(_model, YES) / kModels[_model].w / STEP) * STEP;
+                _h = [self defaultH:_model w:_w];
+            }
+        }
+    }
     SizeRange r = sizeRange(_model);
     _w = MAX(r.wmin, MIN(r.wmax, _w));
     _h = MAX(r.hmin, MIN(r.hmax, _h));

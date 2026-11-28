@@ -35,6 +35,8 @@ BOOL modelIsDesktop(int m);
 SizeRange sizeRange(int m);
 // 手机全屏时的推荐宽度是半屏的 80%：画面铺满时字要更大一些（Pura X View 实测 980 的 80%）
 #define FULL_SCALE 0.8
+// 全屏时状态栏、手势条之外再让出的高度（毫米）：Pura X View 实测 780 宽时 1170 刚好，按物理尺寸算是 1190，差约 2.1mm
+#define FULL_EXTRA_MM 2.1
 // 推荐宽度，显示大小的 100%：电脑和手机半屏取表里的 w，手机全屏再乘 FULL_SCALE
 int baseW(int m, BOOL full);
 // 竖屏：宽度为 w 时，画面占满状态栏以下、手势条以上整块屏幕的高度（不给输入法留位置）。电脑返回推荐高度按 w 等比
