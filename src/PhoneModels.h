@@ -19,10 +19,10 @@ extern const int kModelCount;
 #define DEFAULT_MODEL 3
 
 // 虚拟屏宽高的总范围和步进（点）。手机、电脑各自的范围见 sizeRange
-#define WMIN 800
+#define WMIN 600
 #define WMAX 2560
 #define HMIN 500
-#define HMAX 1600
+#define HMAX 2400
 #define STEP 10
 
 typedef struct {
@@ -33,6 +33,12 @@ typedef struct {
 BOOL modelIsDesktop(int m);
 // 这个设备能调到的宽高范围；m 小于 0 时返回总范围
 SizeRange sizeRange(int m);
+// 手机全屏时的推荐宽度是半屏的 80%：画面铺满时字要更大一些（Pura X View 实测 980 的 80%）
+#define FULL_SCALE 0.8
+// 推荐宽度，显示大小的 100%：电脑和手机半屏取表里的 w，手机全屏再乘 FULL_SCALE
+int baseW(int m, BOOL full);
+// 竖屏：宽度为 w 时，画面占满状态栏以下、手势条以上整块屏幕的高度（不给输入法留位置）。电脑返回推荐高度按 w 等比
+int portraitH(int m, int w);
 
 // 按名称找型号，找不到返回 -1
 int modelIndexByName(NSString *n);

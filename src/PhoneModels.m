@@ -67,7 +67,21 @@ SizeRange sizeRange(int m) {
     if (m < 0 || m >= NMODEL) {
         return (SizeRange){WMIN, WMAX, HMIN, HMAX};
     }
-    return modelIsDesktop(m) ? (SizeRange){1200, 2560, 700, 1600} : (SizeRange){800, 1400, 500, 1600};
+    return modelIsDesktop(m) ? (SizeRange){1200, 2560, 700, 1600} : (SizeRange){600, 1400, 500, 2400};
+}
+
+int baseW(int m, BOOL full) {
+    if (!full || modelIsDesktop(m)) {
+        return kModels[m].w;
+    }
+    return (int)lround(kModels[m].w * FULL_SCALE / STEP) * STEP;
+}
+
+int portraitH(int m, int w) {
+    const Model *d = &kModels[m];
+    double r = modelIsDesktop(m) ? (double)d->h / d->w : (d->hmm - d->top - d->bottom) / d->wmm;
+    SizeRange sr = sizeRange(m);
+    return MAX(sr.hmin, MIN(sr.hmax, (int)lround(w * r / STEP) * STEP));
 }
 
 int modelIndexByName(NSString *n) {

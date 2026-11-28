@@ -22,6 +22,7 @@
 @property(strong) NSPopover *popover;
 @property(strong) FlipView *root, *presetBox;
 @property(strong) NSSwitch *power, *followUU;
+@property(strong) NSSegmentedControl *fullSeg;
 @property(strong) NSTextField *stateLabel, *sizeLabel, *heightLabel;
 @property(strong) NSPopUpButton *modelBtn;
 @property(strong) NSSlider *slider;
@@ -36,7 +37,7 @@
     int _model, _w, _h, _rebuilds;
     // 宽高比（高 ÷ 宽）。拖显示大小时保持不变；选机型、选预设、调画面高度时重算
     double _ratio;
-    BOOL _terminating;
+    BOOL _terminating, _full; // _full：手机画面全屏（铺满）还是半屏（留出输入法）
     CFAbsoluteTime _rebuildT0;
 }
 
@@ -93,20 +94,32 @@
 }
 
 - (void)load {
+    _full = [self.ud objectForKey:@"full"] ? [self.ud boolForKey:@"full"] : YES;
     _model = modelIndexByName([self.ud stringForKey:@"model"] ?: @"");
     if (_model < 0) {
         _model = DEFAULT_MODEL;
     }
-    _w = (int)[self.ud integerForKey:@"w"] ?: kModels[_model].w;
-    _h = (int)[self.ud integerForKey:@"h"] ?: kModels[_model].h;
+    _w = (int)[self.ud integerForKey:@"w"] ?: baseW(_model, _full);
+    _h = (int)[self.ud integerForKey:@"h"] ?: [self defaultH:_model w:_w];
     SizeRange r = sizeRange(_model);
     _w = MAX(r.wmin, MIN(r.wmax, _w));
     _h = MAX(r.hmin, MIN(r.hmax, _h));
     _ratio = (double)_h / _w;
 }
 
+// 设备宽度为 w 时的推荐高度：手机全屏时铺满整块屏，否则按设备推荐尺寸等比
+- (int)defaultH:(int)m w:(int)w {
+    if (_full && !modelIsDesktop(m)) {
+        return portraitH(m, w);
+    }
+    return (int)lround((double)w * kModels[m].h / kModels[m].w / STEP) * STEP;
+}
+
 - (void)save {
     [self.ud setObject:@(kModels[_model].name) forKey:@"model"];
+    if (!modelIsDesktop(_model)) {
+        [self.ud setObject:@(kModels[_model].name) forKey:@"lastPhone"];
+    }
     [self.ud setInteger:_w forKey:@"w"];
     [self.ud setInteger:_h forKey:@"h"];
 }
@@ -221,6 +234,18 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     self.modelBtn.alignment = NSTextAlignmentRight;
     self.modelBtn.menu.delegate = self;
     placeRight(r, y, self.modelBtn, -4);
+
+    // 手机画面：全屏铺满，或半屏留出输入法。当前是电脑时点它会换回上次用的手机
+    y += ROW_H;
+    rowTitle(r, y, @"rectangle.portrait", NO, L(@"手机画面"));
+    self.fullSeg = [NSSegmentedControl segmentedControlWithLabels:@[ L(@"全屏"), L(@"半屏") ]
+                                                     trackingMode:NSSegmentSwitchTrackingSelectOne
+                                                           target:self
+                                                           action:@selector(fullClicked:)];
+    self.fullSeg.controlSize = NSControlSizeSmall;
+    [self.fullSeg sizeToFit];
+    self.fullSeg.toolTip = L(@"全屏：画面铺满手机屏幕。半屏：下面留出输入法的位置");
+    placeRight(r, y, self.fullSeg, 0);
 
     // 显示大小：标题行右侧是分辨率和相对机型推荐宽度的比例，下面一整条滑块，两端写方向
     y += ROW_H;
@@ -401,13 +426,15 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
 
     // 比例：相对机型推荐宽度，越大一屏放的内容越多
     self.sizeLabel.stringValue =
-        [NSString stringWithFormat:@"%d × %d · %ld%%", _w, _h, lround(_w * 100.0 / kModels[_model].w)];
+        [NSString stringWithFormat:@"%d × %d · %ld%%", _w, _h, lround(_w * 100.0 / baseW(_model, _full))];
     double lo, hi;
     [self sliderRange:&lo hi:&hi];
     self.slider.minValue = lo;
     self.slider.maxValue = hi;
     self.slider.doubleValue = _w;
     self.heightLabel.stringValue = [NSString stringWithFormat:@"%d", _h];
+    // 电脑不分全屏半屏，两段都不选
+    self.fullSeg.selectedSegment = modelIsDesktop(_model) ? -1 : _full ? 0 : 1;
 
     NSInteger match = [self matchingPreset];
     for (NSUInteger i = 0; i < self.presetRows.count; i++) {
@@ -431,7 +458,8 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
         [[NSMutableAttributedString alloc] initWithString:it.title
                                                attributes:@{NSFontAttributeName : f, NSParagraphStyleAttributeName : ps}];
     [as appendAttributedString:[[NSAttributedString alloc]
-                                   initWithString:[NSString stringWithFormat:@"\t%d × %d", kModels[i].w, kModels[i].h]
+                                   initWithString:[NSString stringWithFormat:@"\t%d × %d", baseW(i, _full),
+                                                                             [self defaultH:i w:baseW(i, _full)]]
                                        attributes:@{
                                            NSFontAttributeName : [NSFont monospacedDigitSystemFontOfSize:f.pointSize - 1
                                                                                                  weight:NSFontWeightRegular],
@@ -553,7 +581,24 @@ static CFAbsoluteTime lastApply;
         return;
     }
     int m = (int)it.tag;
-    [self useModel:m w:kModels[m].w h:kModels[m].h];
+    [self useModel:m w:baseW(m, _full) h:[self defaultH:m w:baseW(m, _full)]];
+}
+
+// 全屏、半屏：显示大小的百分比不变，宽高换成对应的推荐尺寸。当前是电脑时换回上次用的手机
+- (void)fullClicked:(NSSegmentedControl *)s {
+    double pct = (double)_w / baseW(_model, _full);
+    _full = s.selectedSegment == 0;
+    [self.ud setBool:_full forKey:@"full"];
+    if (!modelIsDesktop(_model)) {
+        int w = (int)lround(baseW(_model, _full) * pct / STEP) * STEP;
+        [self useModel:_model w:w h:[self defaultH:_model w:w]];
+        return;
+    }
+    int m = modelIndexByName([self.ud stringForKey:@"lastPhone"] ?: @"");
+    if (m < 0 || modelIsDesktop(m)) {
+        m = DEFAULT_MODEL;
+    }
+    [self useModel:m w:baseW(m, _full) h:[self defaultH:m w:baseW(m, _full)]];
 }
 
 - (void)applyPreset:(NSInteger)i {

@@ -5,6 +5,10 @@
 "跟随 UU 远程" = "Follow UU Remote";
 "网易 UU 远程连上时自动开启远程画面，断开时自动关闭" = "Turns on when NetEase UU Remote connects, and off when it disconnects";
 "设备" = "Device";
+"手机画面" = "Phone Screen";
+"全屏" = "Full";
+"半屏" = "Half";
+"全屏：画面铺满手机屏幕。半屏：下面留出输入法的位置" = "Full: fills the whole phone screen. Half: leaves room for the keyboard at the bottom";
 "显示大小" = "Display Size";
 "更大文本" = "Larger Text";
 "更多空间" = "More Space";

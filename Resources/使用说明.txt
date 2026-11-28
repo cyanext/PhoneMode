@@ -1,6 +1,6 @@
 远程模式
 
-用手机竖屏远程控制 Mac 时，把 Mac 画面调成贴合手机的尺寸，避开刘海和输入法。用电脑远程控制带鱼屏时，画面按控制端电脑的屏幕比例来。
+用手机竖屏远程控制 Mac 时，把 Mac 画面调成贴合手机的尺寸：默认全屏铺满，要打字时切到半屏，避开输入法。用电脑远程控制带鱼屏时，画面按控制端电脑的屏幕比例来。
 
 安装
 把「远程模式」拖到「应用程序」。第一次打开如果提示「无法验证开发者」，到「系统设置 > 隐私与安全性」底部点「仍要打开」。
@@ -8,8 +8,9 @@
 使用
 1. 打开后菜单栏出现一个折线图标，点一下弹出面板。
 2. 在「设备」里选手机型号；用 MacBook 13 英寸或 27 英寸显示器远程时，在「电脑」里选对应的一项。UU 远程连上时会自动开启远程画面，断开后自动关闭；也可以用顶部开关手动开关。
-3. 字太大或太小，拖「显示大小」；画面底部被输入法挡住，用「画面高度」的 − 调矮。
-4. 调好后点「新建预设」。点面板最下面的「退出」，显示器恢复原样。
+3. 用手机远程时，在「手机画面」里选全屏或半屏：只看不打字选全屏，要打字选半屏。
+4. 字太大或太小，拖「显示大小」；画面底部被挡住，用「画面高度」的 − 调矮。
+5. 调好后点「新建预设」。点面板最下面的「退出」，显示器恢复原样。
 
 需要 macOS 12 或更新的版本。
 
@@ -17,7 +18,7 @@
 
 PhoneMode
 
-When you control a Mac from your phone, PhoneMode resizes the Mac's screen to fit the phone, clear of the notch and the keyboard. When you control an ultrawide monitor from a computer, the screen matches that computer's aspect ratio.
+When you control a Mac from your phone, PhoneMode resizes the Mac's screen to fit the phone: full screen by default, or Half to leave room for the keyboard when you type. When you control an ultrawide monitor from a computer, the screen matches that computer's aspect ratio.
 
 Install
 Drag 远程模式 (PhoneMode) into Applications. If macOS says it can't verify the developer the first time you open it, go to System Settings > Privacy & Security and click "Open Anyway" at the bottom.
@@ -25,7 +26,8 @@ Drag 远程模式 (PhoneMode) into Applications. If macOS says it can't verify t
 Use
 1. Click the line-chart icon in the menu bar to open the panel.
 2. Under "Device", pick your phone model. If you control from a 13-inch MacBook or a 27-inch display, pick it under "Computer". The remote screen turns on when UU Remote connects and off when it disconnects; you can also use the switch at the top.
-3. If the text is too big or too small, drag "Display Size". If the keyboard covers the bottom, click − next to "Screen Height".
-4. When it looks right, click "New Preset". Click "Quit" at the bottom of the panel to restore your displays.
+3. On a phone, pick Full or Half under "Phone Screen": Full for viewing, Half when you need to type.
+4. If the text is too big or too small, drag "Display Size". If something covers the bottom, click − next to "Screen Height".
+5. When it looks right, click "New Preset". Click "Quit" at the bottom of the panel to restore your displays.
 
 The interface follows your system language: Chinese or English. Requires macOS 12 or later.

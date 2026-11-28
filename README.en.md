@@ -12,23 +12,24 @@ Control a computer from your phone and the wide landscape screen shrinks into a 
 
 PhoneMode creates a virtual display as the main screen, sized for the device you're controlling from:
 
-- **Sized for your device**: pick your phone by brand and model, and the screen fits exactly between the status bar and the keyboard. For a computer, pick a 13-inch laptop or a 27-inch monitor, and the screen fills it with no black bars
+- **Sized for your device**: pick your phone by brand and model. By default the screen fills everything below the status bar; switch to Half when you need to type, and it fits exactly between the status bar and the keyboard. For a computer, pick a 13-inch laptop or a 27-inch monitor, and the screen fills it with no black bars
 - **Follows UU Remote**: turns on when NetEase UU Remote connects, and turns off about 6 seconds after it disconnects, restoring your original resolution
-- **Fine-tune on the fly**: drag Display Size to scale everything, or shorten Screen Height to make room for the keyboard
+- **Fine-tune on the fly**: drag Display Size to scale everything, or change Screen Height on its own
 - **Presets**: save a size as a preset and switch to it with one click. Switching between phone and computer doesn't drop the remote session
 
-<p align="center"><img src="docs/remote-diagram.jpg" width="100%" alt="The Mac screen shown at the phone's aspect ratio, filling the area above the keyboard"></p>
+<p align="center"><img src="docs/remote-diagram.jpg" width="100%" alt="The Mac screen shown at the phone's aspect ratio, filling the whole phone screen"></p>
 
 ## Usage
 
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.png"><img src="docs/screenshot-light.png" width="300" alt="The menu bar panel: switch, device, display size, screen height and presets"></picture></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/screenshot-dark.png"><img src="docs/screenshot-light.png" width="300" alt="The menu bar panel: switch, device, phone screen, display size, screen height and presets"></picture></p>
 
 1. Click the line-chart icon in the menu bar to open the panel. A hollow box means off; a filled box means on
 2. Under "Device", pick what you're controlling from: your phone model, or a laptop or monitor
-3. "Follow UU Remote" is on by default, so PhoneMode switches as soon as UU connects. You can also use the switch at the top
-4. If the text is too big or too small, drag "Display Size". If the keyboard covers the bottom of the screen, click − next to "Screen Height"
-5. When it looks right, click "New Preset" to save it. Double-click a preset to rename it; right-click to overwrite it with the current size or delete it
-6. Click "Quit" or press ⌘Q to restore your displays
+3. On a phone, pick Full or Half under "Phone Screen": Full for viewing, Half when you need to type, leaving room for the keyboard at the bottom
+4. "Follow UU Remote" is on by default, so PhoneMode switches as soon as UU connects. You can also use the switch at the top
+5. If the text is too big or too small, drag "Display Size". If the keyboard covers the bottom of the screen, click − next to "Screen Height"
+6. When it looks right, click "New Preset" to save it. Double-click a preset to rename it; right-click to overwrite it with the current size or delete it
+7. Click "Quit" or press ⌘Q to restore your displays
 
 ## Install
 
