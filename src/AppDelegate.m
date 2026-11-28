@@ -20,7 +20,7 @@
 @interface AppDelegate ()
 @property(strong) NSStatusItem *statusItem;
 @property(strong) NSPopover *popover;
-@property(strong) FlipView *root, *presetBox;
+@property(strong) FlipView *root, *presetBox, *phoneRow, *lowerBox;
 @property(strong) NSSwitch *power, *followUU;
 @property(strong) NSSegmentedControl *fullSeg;
 @property(strong) NSTextField *stateLabel, *sizeLabel, *heightLabel;
@@ -117,9 +117,6 @@
 
 - (void)save {
     [self.ud setObject:@(kModels[_model].name) forKey:@"model"];
-    if (!modelIsDesktop(_model)) {
-        [self.ud setObject:@(kModels[_model].name) forKey:@"lastPhone"];
-    }
     [self.ud setInteger:_w forKey:@"w"];
     [self.ud setInteger:_h forKey:@"h"];
 }
@@ -235,9 +232,12 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     self.modelBtn.menu.delegate = self;
     placeRight(r, y, self.modelBtn, -4);
 
-    // 手机画面：全屏铺满，或半屏留出输入法。当前是电脑时点它会换回上次用的手机
+    // 手机画面：全屏铺满，或半屏留出输入法
+    // 这一行和下面的内容各放一个容器：选电脑时藏起这一行，下面整体上移
     y += ROW_H;
-    rowTitle(r, y, @"rectangle.portrait", NO, L(@"手机画面"));
+    self.phoneRow = [[FlipView alloc] initWithFrame:NSMakeRect(0, y, PANEL_W, ROW_H)];
+    [r addSubview:self.phoneRow];
+    rowTitle(self.phoneRow, 0, @"rectangle.portrait", NO, L(@"手机画面"));
     self.fullSeg = [NSSegmentedControl segmentedControlWithLabels:@[ L(@"全屏"), L(@"半屏") ]
                                                      trackingMode:NSSegmentSwitchTrackingSelectOne
                                                            target:self
@@ -245,27 +245,30 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     self.fullSeg.controlSize = NSControlSizeSmall;
     [self.fullSeg sizeToFit];
     self.fullSeg.toolTip = L(@"全屏：画面铺满手机屏幕。半屏：下面留出输入法的位置");
-    placeRight(r, y, self.fullSeg, 0);
+    placeRight(self.phoneRow, 0, self.fullSeg, 0);
+    self.lowerBox = [[FlipView alloc] initWithFrame:NSMakeRect(0, y + ROW_H, PANEL_W, 10)];
+    [r addSubview:self.lowerBox];
+    FlipView *v = self.lowerBox;
 
     // 显示大小：标题行右侧是分辨率和相对机型推荐宽度的比例，下面一整条滑块，两端写方向
-    y += ROW_H;
-    rowTitle(r, y, @"textformat.size", NO, L(@"显示大小"));
+    y = 0;
+    rowTitle(v, y, @"textformat.size", NO, L(@"显示大小"));
     self.sizeLabel = numLabel(150);
-    placeRight(r, y, self.sizeLabel, 0);
+    placeRight(v, y, self.sizeLabel, 0);
     self.slider = [NSSlider sliderWithValue:WMIN minValue:WMIN maxValue:WMAX target:self action:@selector(slid:)];
     self.slider.frame = NSMakeRect(PAD - 2, y + 40, PANEL_W - PAD * 2 + 4, 24);
     self.slider.numberOfTickMarks = 7;
-    [r addSubview:self.slider];
+    [v addSubview:self.slider];
     NSTextField *l = label(L(@"更大文本"), 11, NSFontWeightRegular, NSColor.secondaryLabelColor);
     [l setFrameOrigin:NSMakePoint(PAD, y + 66)];
-    [r addSubview:l];
+    [v addSubview:l];
     NSTextField *m = label(L(@"更多空间"), 11, NSFontWeightRegular, NSColor.secondaryLabelColor);
     [m setFrameOrigin:NSMakePoint(PANEL_W - PAD - m.frame.size.width, y + 66)];
-    [r addSubview:m];
+    [v addSubview:m];
 
     // 画面高度：数字加「− | +」，每点一下 ±10
     y += SIZE_H;
-    rowTitle(r, y, @"arrow.up.and.down", NO, L(@"画面高度"));
+    rowTitle(v, y, @"arrow.up.and.down", NO, L(@"画面高度"));
     self.heightSeg = [NSSegmentedControl
         segmentedControlWithImages:@[
             [NSImage imageWithSystemSymbolName:@"minus" accessibilityDescription:L(@"调矮")],
@@ -278,15 +281,15 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     [self.heightSeg setWidth:30 forSegment:1];
     [self.heightSeg sizeToFit];
     self.heightSeg.toolTip = L(@"只改高度。手机上画面底部被输入法挡住、电脑上远程窗口没全屏时调矮");
-    placeRight(r, y, self.heightSeg, -2);
+    placeRight(v, y, self.heightSeg, -2);
     self.heightLabel = numLabel(60);
-    placeRight(r, y, self.heightLabel, self.heightSeg.frame.size.width + 6);
+    placeRight(v, y, self.heightLabel, self.heightSeg.frame.size.width + 6);
     y += ROW_H + 6;
-    separator(r, y);
+    separator(v, y);
 
     // 预设区：标题、各条预设、新建预设、退出。条数会变，放进单独的容器里重排
     self.presetBox = [[FlipView alloc] initWithFrame:NSMakeRect(0, y + 1, PANEL_W, 10)];
-    [r addSubview:self.presetBox];
+    [v addSubview:self.presetBox];
 
     NSViewController *vc = [NSViewController new];
     vc.view = r;
@@ -391,10 +394,7 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     y += 42;
 
     b.frame = NSMakeRect(0, b.frame.origin.y, PANEL_W, y);
-    NSRect f = self.root.frame;
-    f.size.height = NSMaxY(b.frame);
-    self.root.frame = f;
-    self.popover.contentSize = f.size;
+    self.lowerBox.frame = NSMakeRect(0, self.lowerBox.frame.origin.y, PANEL_W, NSMaxY(b.frame));
     [self refresh];
 }
 
@@ -433,14 +433,29 @@ static void placeRight(NSView *v, CGFloat y, NSView *c, CGFloat right) {
     self.slider.maxValue = hi;
     self.slider.doubleValue = _w;
     self.heightLabel.stringValue = [NSString stringWithFormat:@"%d", _h];
-    // 电脑不分全屏半屏，两段都不选
-    self.fullSeg.selectedSegment = modelIsDesktop(_model) ? -1 : _full ? 0 : 1;
+    self.fullSeg.selectedSegment = _full ? 0 : 1;
+    [self layoutPanel];
 
     NSInteger match = [self matchingPreset];
     for (NSUInteger i = 0; i < self.presetRows.count; i++) {
         self.presetRows[i].checked = (NSInteger)i == match;
     }
     self.addRow.enabled = match < 0;
+}
+
+// 电脑不分全屏半屏：藏起「手机画面」这一行，下面整体上移，面板高度跟着变
+- (void)layoutPanel {
+    BOOL desk = modelIsDesktop(_model);
+    self.phoneRow.hidden = desk;
+    NSRect lf = self.lowerBox.frame;
+    lf.origin.y = desk ? NSMinY(self.phoneRow.frame) : NSMaxY(self.phoneRow.frame);
+    self.lowerBox.frame = lf;
+    NSRect f = self.root.frame;
+    f.size.height = NSMaxY(lf);
+    if (f.size.height != self.root.frame.size.height) {
+        self.root.frame = f;
+        self.popover.contentSize = f.size;
+    }
 }
 
 #pragma mark 机型菜单
@@ -584,21 +599,13 @@ static CFAbsoluteTime lastApply;
     [self useModel:m w:baseW(m, _full) h:[self defaultH:m w:baseW(m, _full)]];
 }
 
-// 全屏、半屏：显示大小的百分比不变，宽高换成对应的推荐尺寸。当前是电脑时换回上次用的手机
+// 全屏、半屏：显示大小的百分比不变，宽高换成对应的推荐尺寸。只在选了手机时显示
 - (void)fullClicked:(NSSegmentedControl *)s {
     double pct = (double)_w / baseW(_model, _full);
     _full = s.selectedSegment == 0;
     [self.ud setBool:_full forKey:@"full"];
-    if (!modelIsDesktop(_model)) {
-        int w = (int)lround(baseW(_model, _full) * pct / STEP) * STEP;
-        [self useModel:_model w:w h:[self defaultH:_model w:w]];
-        return;
-    }
-    int m = modelIndexByName([self.ud stringForKey:@"lastPhone"] ?: @"");
-    if (m < 0 || modelIsDesktop(m)) {
-        m = DEFAULT_MODEL;
-    }
-    [self useModel:m w:baseW(m, _full) h:[self defaultH:m w:baseW(m, _full)]];
+    int w = (int)lround(baseW(_model, _full) * pct / STEP) * STEP;
+    [self useModel:_model w:w h:[self defaultH:_model w:w]];
 }
 
 - (void)applyPreset:(NSInteger)i {
