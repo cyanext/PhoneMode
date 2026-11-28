@@ -27,9 +27,9 @@ static void shadowed(CGFloat blur, CGFloat dy, CGFloat a, void (^d)(void)) {
     d(); [NSGraphicsContext restoreGraphicsState];
 }
 
-// 远程画面：按 400×800 设计，坐标原点在左上角
+// 远程画面：按 400×834 设计，坐标原点在左上角
 #define CW 400.0
-#define CH 800.0
+#define CH 834.0
 #define DOCK_W 46.0
 // 程序坞里的一枚图标：渐变圆角方块上一个白色符号
 static void dockIcon(NSRect r, unsigned c1, unsigned c2, NSString *sym) {
@@ -129,8 +129,8 @@ int main(int argc, const char **argv){ @autoreleasepool {
   for (int i = 0; i < 4; i++) { [hx(0x111111,1) setFill]; [rr(NSMakeRect(NSMaxX(ps) - 104 + i * 6, top - 34, 4, 5 + i * 2.5), 1) fill]; }
   [[NSImage imageWithSystemSymbolName:@"wifi" accessibilityDescription:nil] drawInRect:NSMakeRect(NSMaxX(ps) - 74, top - 35, 17, 13)];
   [[NSImage imageWithSystemSymbolName:@"battery.75percent" accessibilityDescription:nil] drawInRect:NSMakeRect(NSMaxX(ps) - 52, top - 35, 27, 13)];
-  // 状态栏以下、手势条以上整块都是远程画面
-  NSRect area = NSMakeRect(ps.origin.x, ps.origin.y + 22, ps.size.width, top - 54 - ps.origin.y - 22);
+  // 状态栏以下整块都是远程画面，手势条压在画面上
+  NSRect area = NSMakeRect(ps.origin.x, ps.origin.y, ps.size.width, top - 54 - ps.origin.y);
   [screen drawInRect:area fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1];
   [hx(0x1F2329,1) setFill]; [rr(NSMakeRect(NSMidX(ps) - 60, ps.origin.y + 8, 120, 5), 2.5) fill];
   [NSGraphicsContext restoreGraphicsState];
